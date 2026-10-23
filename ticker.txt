@@ -1,0 +1,5 @@
+# Revival messages for the in-game menu ticker (read by the client shim when the game starts).
+# chance = percent of ticker lines replaced by one of the messages below (0 turns them off).
+# Every other non-empty line is a message; one is picked at random. Plain ASCII, no % signs.
+chance=20
+Enjoying the Trials Evolution revival? Support it at ko-fi.com/StewYork91

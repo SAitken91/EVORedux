@@ -1,0 +1,38 @@
+# Server state and secrets - never commit
+server_secret.key
+trials.db
+trials.db-*
+*.db
+traffic.log*
+sessions_*.json
+secure_registry.json
+backups/
+
+# Player login keys
+trials_revive_login.key
+*.key
+
+# Logs from the client shim / game
+trials_revive_shim.log
+trials_revive_gamelog_*.txt
+
+# Build output (the player DLL in player_package/ is committed on purpose)
+client_shim/*.dll
+client_shim/*.obj
+client_shim/*.lib
+client_shim/*.exp
+tools/xmemdec/*.dll
+tools/xmemdec/*.obj
+dist/
+
+# Ubisoft / RedLynx game files and DLC content - never commit
+ubiorbitapi_r2_loader_orig.dll
+*.pak
+*.raw
+*.raw.hdr
+*.fsb
+*.fev
+DLCContent/
+
+__pycache__/
+*.pyc
