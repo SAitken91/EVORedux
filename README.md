@@ -66,6 +66,10 @@ On Track Central boards these show up as players named **`Legacy#<number>`**:
 
 ## Install (players)
 
+**30-second video walkthrough** (click to watch):
+
+[![How to download, extract and install](docs/install_video_preview.png)](docs/install_video.mp4)
+
 1. **Close the game.**
 2. Download the player package: `TrialsEvolutionRevival.zip` from the
    [Releases](../../releases) page — or click **Code → Download ZIP** here and open the
