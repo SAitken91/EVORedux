@@ -3,14 +3,16 @@ TRIALS EVOLUTION REVIVAL
 
 A fan-run replacement for the shut-down online servers of Trials Evolution: Gold Edition (PC).
 Leaderboards, ghosts and Track Central boards work again, including thousands of archived
-historical scores. Not affiliated with Ubisoft or RedLynx. You need to own the game on Steam.
+historical scores. Not affiliated with Ubisoft or RedLynx. You need to own the game (Steam or Ubisoft Connect).
 
 
 INSTALL
 -------
 1. Close the game.
-2. Unzip this folder anywhere and double-click INSTALL.bat.
-3. Start Trials Evolution from Steam like normal. Ubisoft Connect still opens; that's expected.
+2. Unzip it first: right-click the zip -> Extract All -> Extract. Then open the extracted
+   TrialsEvolutionRevival folder and double-click INSTALL.bat (it finds the game by itself).
+3. Start Trials Evolution like normal (Steam or Ubisoft Connect). Ubisoft Connect still opens;
+   that's expected.
 
 If it says it can't write to the game folder, right-click INSTALL.bat -> Run as administrator.
 If Steam ever "verifies game files", run INSTALL.bat again.

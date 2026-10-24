@@ -26,10 +26,45 @@ function Find-Game {
             }
         }
     }
-    foreach ($lib in ($libraries | Select-Object -Unique)) {
-        $game = Join-Path $lib "steamapps\common\TrialsPC"
-        if (Test-Path -LiteralPath (Join-Path $game "datapack\trialsFMX.exe")) { return $game }
+    $candidates = @()
+    foreach ($lib in ($libraries | Select-Object -Unique)) { $candidates += Join-Path $lib "steamapps\common\TrialsPC" }
+
+    # Ubisoft Connect: every game it has installed, plus its games folders.
+    foreach ($key in "HKLM:\SOFTWARE\WOW6432Node\Ubisoft\Launcher\Installs", "HKLM:\SOFTWARE\Ubisoft\Launcher\Installs") {
+        try {
+            foreach ($k in (Get-ChildItem $key -ErrorAction Stop)) {
+                $dir = (Get-ItemProperty $k.PSPath -ErrorAction SilentlyContinue).InstallDir
+                if ($dir) { $candidates += ($dir -replace '/', '\') }
+            }
+        } catch {}
     }
+    $ubiRoots = @()
+    foreach ($key in "HKLM:\SOFTWARE\WOW6432Node\Ubisoft\Launcher", "HKLM:\SOFTWARE\Ubisoft\Launcher") {
+        try { $ubiRoots += (Get-ItemProperty $key -ErrorAction Stop).InstallDir } catch {}
+    }
+    $ubiRoots += "C:\Program Files (x86)\Ubisoft\Ubisoft Game Launcher", "C:\Program Files\Ubisoft\Ubisoft Game Launcher"
+    foreach ($u in ($ubiRoots | Where-Object { $_ } | Select-Object -Unique)) {
+        $games = Join-Path $u "games"
+        if (Test-Path -LiteralPath $games) {
+            foreach ($d in (Get-ChildItem -LiteralPath $games -Directory -ErrorAction SilentlyContinue)) { $candidates += $d.FullName }
+        }
+    }
+
+    foreach ($c in ($candidates | Select-Object -Unique)) {
+        $game = Test-GameDir $c
+        if ($game) { return $game }
+    }
+    return $null
+}
+
+# The game folder is the one holding datapack\trialsFMX.exe (Steam: ...\steamapps\common\TrialsPC).
+# Also accepts the datapack folder itself.
+function Test-GameDir($dir) {
+    if (-not $dir) { return $null }
+    try {
+        if (Test-Path -LiteralPath (Join-Path $dir "datapack\trialsFMX.exe")) { return $dir }
+        if (Test-Path -LiteralPath (Join-Path $dir "trialsFMX.exe")) { return (Split-Path -Parent $dir) }
+    } catch {}
     return $null
 }
 
@@ -41,9 +76,13 @@ function Pause-Exit($code) {
 
 $game = Find-Game
 if (-not $game) {
-    Write-Host "Could not find Trials Evolution Gold Edition in your Steam libraries." -ForegroundColor Red
-    $game = Read-Host "Paste the path to the TrialsPC folder (or press Enter to cancel)"
-    if (-not $game -or -not (Test-Path -LiteralPath (Join-Path $game "datapack\trialsFMX.exe"))) { Pause-Exit 1 }
+    Write-Host "Could not find Trials Evolution Gold Edition (Steam or Ubisoft Connect)." -ForegroundColor Red
+    Write-Host "Paste the game's install folder - the one that contains datapack\trialsFMX.exe."
+    $game = Test-GameDir ((Read-Host "Game folder (or press Enter to cancel)").Trim('"', ' '))
+    if (-not $game) {
+        Write-Host "trialsFMX.exe was not found there." -ForegroundColor Red
+        Pause-Exit 1
+    }
 }
 $datapack = Join-Path $game "datapack"
 Write-Host "Game folder: $game"

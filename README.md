@@ -8,7 +8,7 @@ fan-made replacement server that brings them back.
 and the rest of the online side, as it did on day one. We're not there yet, but the leaderboards
 are live right now and waiting for times.
 
-Not affiliated with Ubisoft or RedLynx. You need your own copy of the game on Steam.
+Not affiliated with Ubisoft or RedLynx. You need your own copy of the game (Steam or Ubisoft Connect).
 
 ---
 
@@ -70,9 +70,11 @@ On Track Central boards these show up as players named **`Legacy#<number>`**:
 2. Download the player package: `TrialsEvolutionRevival.zip` from the
    [Releases](../../releases) page — or click **Code → Download ZIP** here and open the
    `player_package` folder.
-3. Double-click **`INSTALL.bat`**. (If it can't write to the game folder, right-click it →
-   *Run as administrator*.)
-4. Start Trials Evolution from Steam as usual. Ubisoft Connect still opens; that's expected.
+3. **Unzip it first** (right-click → *Extract All* → *Extract*), open the extracted
+   `TrialsEvolutionRevival` folder and double-click **`INSTALL.bat`**. It finds the game by itself,
+   whether you have it on Steam or Ubisoft Connect. (If it can't write to the game folder,
+   right-click it → *Run as administrator*.)
+4. Start Trials Evolution as usual. Ubisoft Connect still opens; that's expected.
 
 If Steam ever **verifies game files**, the fix is removed — just run `INSTALL.bat` again.
 To remove everything, run **`UNINSTALL.bat`**.
