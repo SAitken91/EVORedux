@@ -2,6 +2,7 @@
 
 Reads pack0/tracks.xml out of build/data/data.pak and classifies every leaderboard:
   - skill games scored in points (p_* medal limits)  -> higher is better
+  - Trials HD skill games (ultimate limit above silver, e.g. Ski Jump)  -> higher is better
   - everything else (races, time-only skill games)  -> fewest faults, then lowest time
 
 Usage:  python tools/gen_boards.py ["C:/.../TrialsPC/build/data/data.pak"]
@@ -40,6 +41,11 @@ def read_pak_file(pak_path, wanted):
     raise KeyError(wanted)
 
 
+def _limit(text):
+    """Medal limit as a comparable tuple: "1:44:000" -> (1, 44, 0), "64" -> (64,)."""
+    return tuple(int(p) for p in text.split(":")) if text else ()
+
+
 def main():
     pak = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_PAK
     xml = read_pak_file(pak, "pack0/tracks.xml").decode("utf-8", "replace")
@@ -51,7 +57,9 @@ def main():
             continue
         limits = re.search(r"<Limits\b([^>]*)>", m.group(4))
         keys = re.findall(r'(\w+)="', limits.group(1)) if limits else []
-        points = any(k.startswith("p_") for k in keys)
+        values = dict(re.findall(r'(\w+)="([^"]*)"', limits.group(1))) if limits else {}
+        points = (any(k.startswith("p_") for k in keys)
+                  or _limit(values.get("ultimate")) > _limit(values.get("silver")))
         name = (m.group(2) or "").strip()
         if "<" in name:          # a commented-out <Track> block, not a title comment
             name = ""

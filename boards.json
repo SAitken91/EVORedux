@@ -10,7 +10,19 @@
   78,
   79,
   80,
-  81
+  81,
+  155,
+  156,
+  157,
+  158,
+  159,
+  160,
+  161,
+  162,
+  163,
+  164,
+  165,
+  166
  ],
  "boards": {
   "3": {
@@ -701,73 +713,73 @@
    "track": 900,
    "mode": "skillgame",
    "name": "Inside The Ball",
-   "higher_is_better": false
+   "higher_is_better": true
   },
   "156": {
    "track": 902,
    "mode": "skillgame",
    "name": "Ski Jump",
-   "higher_is_better": false
+   "higher_is_better": true
   },
   "157": {
    "track": 912,
    "mode": "skillgame",
    "name": "Ring Of Fire",
-   "higher_is_better": false
+   "higher_is_better": true
   },
   "158": {
    "track": 905,
    "mode": "skillgame",
    "name": "Delivery",
-   "higher_is_better": false
+   "higher_is_better": true
   },
   "159": {
    "track": 901,
    "mode": "skillgame",
    "name": "Down The Stairs",
-   "higher_is_better": false
+   "higher_is_better": true
   },
   "160": {
    "track": 906,
    "mode": "skillgame",
    "name": "In Flames",
-   "higher_is_better": false
+   "higher_is_better": true
   },
   "161": {
    "track": 910,
    "mode": "skillgame",
    "name": "Target Hunt",
-   "higher_is_better": false
+   "higher_is_better": true
   },
   "162": {
    "track": 909,
    "mode": "skillgame",
    "name": "Hill Climb",
-   "higher_is_better": false
+   "higher_is_better": true
   },
   "163": {
    "track": 908,
    "mode": "skillgame",
    "name": "Outside The Ball",
-   "higher_is_better": false
+   "higher_is_better": true
   },
   "164": {
    "track": 904,
    "mode": "skillgame",
    "name": "Infernal Pinball",
-   "higher_is_better": false
+   "higher_is_better": true
   },
   "165": {
    "track": 907,
    "mode": "skillgame",
    "name": "Flip Hunter",
-   "higher_is_better": false
+   "higher_is_better": true
   },
   "166": {
    "track": 911,
    "mode": "skillgame",
    "name": "Loose Screw!",
-   "higher_is_better": false
+   "higher_is_better": true
   },
   "170": {
    "track": 1101,
