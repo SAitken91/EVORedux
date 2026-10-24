@@ -393,8 +393,9 @@ def quazal_datetime(t=None):
 class PlayerStats:
     """Leaderboards built from the game's own WriteStats uploads.
 
-    Decoded from real uploads: board N (e.g. 77) is a track board where stat 100 = faults and
-    stat 101 = time in ms; boards 1 and 2 are global ranking boards ordered by stat 160.
+    Decoded from real uploads: on a race track board stat 100 = the game's own score (higher is
+    better, 0 on skill games), stat 101 = faults and stat 102 = time in ms; on a points skill game
+    stat 101 = the points. Boards 1 and 2 are global ranking boards ordered by stat 160.
     Track boards keep each player's best run; global boards keep the latest totals.
     """
     PROTO = 55
@@ -403,7 +404,8 @@ class PlayerStats:
     NEAR_PLAYER, BY_RANK, BY_PLAYERS = 3, 4, 5
     NEAR_PLAYER2, BY_RANK2, BY_PLAYERS2 = 10, 11, 12
     GLOBAL_BOARDS = {1, 2}
-    STAT_FAULTS, STAT_TIME, STAT_RANKING = 100, 101, 160
+    STAT_FAULTS, STAT_TIME, STAT_RANKING = 101, 102, 160
+    STAT_POINTS = 101       # skill games: same slot as faults
     STAT_GHOST_SIZE = 104   # size of the ghost uploaded for this run
 
     def __init__(self, accounts, log, storage=None, boards_path="boards.json"):
@@ -430,7 +432,7 @@ class PlayerStats:
         if board in self.GLOBAL_BOARDS:
             return (-stats.get(self.STAT_RANKING, (1, 0))[1],)
         if board in self.higher_is_better:   # skill games: further / more points is better
-            return (-stats.get(self.STAT_TIME, (1, 0))[1],)
+            return (-stats.get(self.STAT_POINTS, (1, 0))[1],)
         return (stats.get(self.STAT_FAULTS, (1, 1 << 62))[1], stats.get(self.STAT_TIME, (1, 1 << 62))[1])
 
     def _apply_write(self, pid, params, when, replay=False):
@@ -478,7 +480,8 @@ class PlayerStats:
     def _write_result(self, w, query, ranking, picks):
         board, context, reset, stat_ids = query
         w.u32(board).u32(context).u32(reset).u32(len(ranking)).u32(len(picks))
-        key_stat = self.STAT_RANKING if board in self.GLOBAL_BOARDS else self.STAT_TIME
+        # m_score: unchanged from what has been verified in game (stat 101); the rows read the stat set
+        key_stat = self.STAT_RANKING if board in self.GLOBAL_BOARDS else self.STAT_POINTS
         for rank, (pid, stats, submitted) in picks:                 # PlayerRank
             self._write_stat_set(w, pid, stats, submitted, stat_ids)
             w.u32(0).u32(rank)                                      # m_rankStatus, m_rank (1-based)
