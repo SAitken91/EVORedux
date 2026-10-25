@@ -143,7 +143,11 @@ class Accounts:
         self.db = sqlite3.connect(path, check_same_thread=False)
         self.lock = threading.Lock()
         self.db.execute("CREATE TABLE IF NOT EXISTS accounts (pid INTEGER PRIMARY KEY, name TEXT UNIQUE)")
-        self.db.execute("INSERT OR IGNORE INTO accounts VALUES (100, 'Tracking')")
+        self.db.execute("INSERT OR IGNORE INTO accounts (pid, name) VALUES (100, 'Tracking')")
+        # Optional name shown on the boards instead of the login name (tools/rename_player.py).
+        # The login name stays the account key: the game always logs in with it.
+        if "display" not in [r[1] for r in self.db.execute("PRAGMA table_info(accounts)")]:
+            self.db.execute("ALTER TABLE accounts ADD COLUMN display TEXT")
         # Name claims: the first revival key used with a name owns it. Only an HMAC of the key is
         # kept (keyed with the server secret); the key itself is never stored or logged.
         self.db.execute("CREATE TABLE IF NOT EXISTS account_keys (name TEXT PRIMARY KEY, key_hmac TEXT, "
@@ -184,10 +188,14 @@ class Accounts:
         return row[0] if row else None
 
     def display_name(self, pid):
-        """Name shown to other players. A login name that is an e-mail address is never shown."""
-        name = self.name_for(pid)
-        if name is None:
+        """Name shown to other players: the admin-set display name if any, else the login name.
+        A login name that is an e-mail address is never shown."""
+        row = self.db.execute("SELECT name, display FROM accounts WHERE pid=?", (pid,)).fetchone()
+        if row is None:
             return None
+        name, display = row
+        if display:
+            return display
         return f"Rider{pid}" if "@" in name else name
 
 
