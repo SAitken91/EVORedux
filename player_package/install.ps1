@@ -125,9 +125,11 @@ try {
 }
 
 Write-Host ""
-Write-Host "Installed! Start Trials Evolution from Steam as usual." -ForegroundColor Green
+Write-Host "Installed! Start Trials Evolution as usual (Steam or Ubisoft Connect)." -ForegroundColor Green
 Write-Host "Your game will log in with a private revival key instead of your Ubisoft password."
 Write-Host "Back up this file - it is your revival login:" -ForegroundColor Yellow
 Write-Host "  $datapack\trials_revive_login.key  (created the first time you start the game)"
-Write-Host "If Steam 'verifies game files', just run INSTALL.bat again."
+Write-Host "If Steam or Ubisoft Connect 'verifies game files', just run INSTALL.bat again."
+Write-Host "If the game still says offline, send us this file:" -ForegroundColor Yellow
+Write-Host "  $datapack\trials_revive_shim.log"
 Pause-Exit 0

@@ -158,17 +158,72 @@ static const uintptr_t ONLINE_CONFIG_ID = 0x1a910f8;
 static const char UBISOFT_CONFIG_ID[] = "e940a83f3cc84074a9933a0f360a0b69";
 static const char REVIVAL_CONFIG_ID[] = "c5855ba01ddd954b564be2c8a4ab86e4";   // must match server.py
 
+static bool replace_config_id_at(char* id) {
+    DWORD old;
+    if (!VirtualProtect(id, sizeof REVIVAL_CONFIG_ID, PAGE_READWRITE, &old)) return false;
+    memcpy(id, REVIVAL_CONFIG_ID, sizeof REVIVAL_CONFIG_ID);
+    VirtualProtect(id, sizeof REVIVAL_CONFIG_ID, old, &old);
+    return true;
+}
+
+// Other game builds (the Ubisoft Connect copy of the game is a different exe than Steam's) keep
+// the same ID string somewhere else: look for it anywhere in the game's own image.
+static int replace_config_id_in_image() {
+    BYTE* base = (BYTE*)GetModuleHandleA(nullptr);
+    IMAGE_DOS_HEADER* dos = (IMAGE_DOS_HEADER*)base;
+    if (dos->e_magic != IMAGE_DOS_SIGNATURE) return 0;
+    IMAGE_NT_HEADERS* nt = (IMAGE_NT_HEADERS*)(base + dos->e_lfanew);
+    BYTE* end = base + nt->OptionalHeader.SizeOfImage;
+    int replaced = 0;
+    for (BYTE* p = base; p < end;) {
+        MEMORY_BASIC_INFORMATION mbi;
+        if (!VirtualQuery(p, &mbi, sizeof mbi)) break;
+        BYTE* region_end = min((BYTE*)mbi.BaseAddress + mbi.RegionSize, end);
+        bool can_read = mbi.State == MEM_COMMIT && !(mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)) &&
+                        (mbi.Protect & (PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READ |
+                                        PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY));
+        if (can_read) {
+            for (BYTE* q = p; q + sizeof UBISOFT_CONFIG_ID <= region_end; ++q) {
+                if (*q == 'e' && memcmp(q, UBISOFT_CONFIG_ID, sizeof UBISOFT_CONFIG_ID) == 0 &&
+                    replace_config_id_at((char*)q))
+                    ++replaced;
+            }
+        }
+        p = region_end;
+    }
+    return replaced;
+}
+
+static DWORD WINAPI retry_config_id(LPVOID) {
+    for (int i = 0; i < 400; ++i) {          // up to 20 s, for builds that unpack after loading us
+        Sleep(50);
+        if (int n = replace_config_id_in_image()) {
+            char line[120];
+            sprintf_s(line, "online config id replaced in game image (%d place%s, after %d ms)", n, n == 1 ? "" : "s", (i + 1) * 50);
+            shim_log(line);
+            return 0;
+        }
+    }
+    shim_log("online config id NOT found in this game build: the revival server will refuse it (send this log)");
+    return 0;
+}
+
 static void use_revival_config_id() {
     static_assert(sizeof UBISOFT_CONFIG_ID == sizeof REVIVAL_CONFIG_ID, "same length");
     char* id = (char*)ONLINE_CONFIG_ID;
-    if ((uintptr_t)GetModuleHandleA(nullptr) != 0x400000 || memcmp(id, UBISOFT_CONFIG_ID, sizeof UBISOFT_CONFIG_ID) != 0) {
-        shim_log("unknown game build: online config id not changed (the revival server will refuse it)");
+    if ((uintptr_t)GetModuleHandleA(nullptr) == 0x400000 && memcmp(id, UBISOFT_CONFIG_ID, sizeof UBISOFT_CONFIG_ID) == 0) {
+        replace_config_id_at(id);                // the Steam build
         return;
     }
-    DWORD old;
-    if (!VirtualProtect(id, sizeof REVIVAL_CONFIG_ID, PAGE_READWRITE, &old)) return;
-    memcpy(id, REVIVAL_CONFIG_ID, sizeof REVIVAL_CONFIG_ID);
-    VirtualProtect(id, sizeof REVIVAL_CONFIG_ID, old, &old);
+    if (int n = replace_config_id_in_image()) {
+        char line[96];
+        sprintf_s(line, "online config id replaced in game image (%d place%s)", n, n == 1 ? "" : "s");
+        shim_log(line);
+        return;
+    }
+    shim_log("online config id not in the game image yet; retrying in the background");
+    HANDLE t = CreateThread(nullptr, 0, retry_config_id, nullptr, 0, nullptr);
+    if (t) CloseHandle(t);
 }
 
 BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID) {
