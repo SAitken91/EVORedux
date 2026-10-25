@@ -29,8 +29,9 @@ leaderboards fill up again — let's bring the glory back to them.
 - ✅ **Online login** through the revival server
 - ✅ **Global and per-track leaderboards** for every track in the game
 - ✅ **Ghosts** — upload your best run, download and race other players' ghosts
-- ✅ **Track Central leaderboards**, including thousands of archived historical scores (see
-  [Legacy spots](#legacy-spots-the-historical-scores))
+- ✅ **Track Central tracks you have installed** are playable, with leaderboards that include
+  thousands of archived historical scores (see [Get Track Central tracks](#get-track-central-tracks)
+  and [Legacy spots](#legacy-spots-the-historical-scores))
 - ✅ Occasional revival messages in the main-menu news ticker
 
 ## The plan
@@ -80,15 +81,41 @@ On Track Central boards these show up as players named **`Legacy#<number>`**:
    right-click it → *Run as administrator*.)
 4. Start Trials Evolution as usual. Ubisoft Connect still opens; that's expected.
 
-If Steam ever **verifies game files**, the fix is removed — just run `INSTALL.bat` again.
-To remove everything, run **`UNINSTALL.bat`**.
+If Steam or Ubisoft Connect ever **verifies game files**, the fix is removed — just run
+`INSTALL.bat` again. To remove everything, run **`UNINSTALL.bat`**.
+
+### Still offline?
+
+- Make sure you have the **latest release** (v1.2 or newer). Older versions only worked on the
+  Steam copy of the game, so Ubisoft Connect players stayed offline.
+- Run `INSTALL.bat` again after downloading it, then start the game.
+- Still offline? Send us `trials_revive_shim.log` from the game's `datapack` folder (on Steam:
+  `...\steamapps\common\TrialsPC\datapack\`). It says exactly what went wrong.
 
 ### Your revival login
 
-The first time you play, the game creates `trials_revive_login.key` in
-`...\steamapps\common\TrialsPC\datapack\`. **Back it up.** The first key used with your Ubisoft
+The first time you play, the game creates `trials_revive_login.key` in the game's `datapack`
+folder (on Steam: `...\steamapps\common\TrialsPC\datapack\`). **Back it up.** The first key used with your Ubisoft
 name claims that name on the boards; if you reinstall, copy the file back. If you lose it, ask
 the server admin to release your name (your scores and ghosts stay attached to it).
+
+---
+
+## Get Track Central tracks
+
+Browsing and downloading tracks inside the game isn't back yet. Until it is, the community has
+an archive of **about 700 of the best-rated Track Central tracks**, shared by Scruffy McGuffy on
+the Steam forums:
+
+**[Archive of Track Central tracks (Steam discussion)](https://steamcommunity.com/app/220160/discussions/0/1680315447969304289/)**
+
+1. Download the archive from the link in that thread.
+2. Extract it into `Documents\Ubisoft\Trials Evolution Gold Edition\SavedGames`.
+3. Start the game: the tracks show up under Track Central.
+
+With EVO Redux installed they're **playable with working leaderboards**, including the original
+scores from before the shutdown ([Legacy spots](#legacy-spots-the-historical-scores)). Set a
+time and you're on the board with them.
 
 ---
 
