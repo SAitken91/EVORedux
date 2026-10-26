@@ -123,7 +123,18 @@ LONG CALLBACK exception_logger(EXCEPTION_POINTERS* ep) {
     DWORD code = ep->ExceptionRecord->ExceptionCode;
     if (code == 0x406D1388 || code == 0x40010006 || code == 0x4001000A || code == DBG_PRINTEXCEPTION_WIDE_C)
         return EXCEPTION_CONTINUE_SEARCH;   // thread naming / debug output
-    if (InterlockedIncrement(&g_exceptions) > 40) return EXCEPTION_CONTINUE_SEARCH;
+    // Some system DLLs probe memory and fault at startup over and over; log each address at most
+    // twice so they can't use up the budget before the fault that matters.
+    static DWORD seen_addr[64];
+    static LONG seen_count[64];
+    DWORD at = (DWORD)(uintptr_t)ep->ExceptionRecord->ExceptionAddress;
+    for (int i = 0; i < 64; i++) {
+        if (seen_addr[i] == at || InterlockedCompareExchange((LONG*)&seen_addr[i], (LONG)at, 0) == 0) {
+            if (InterlockedIncrement(&seen_count[i]) > 2) return EXCEPTION_CONTINUE_SEARCH;
+            break;
+        }
+    }
+    if (InterlockedIncrement(&g_exceptions) > 200) return EXCEPTION_CONTINUE_SEARCH;
     CONTEXT* c = ep->ContextRecord;
     char line[1024];
     int n = sprintf_s(line, "EXCEPTION %08lx at %08lx eax=%08lx ebx=%08lx ecx=%08lx edx=%08lx esi=%08lx edi=%08lx ebp=%08lx esp=%08lx",
@@ -163,6 +174,76 @@ LONG CALLBACK exception_logger(EXCEPTION_POINTERS* ep) {
     fflush(g_file);
     LeaveCriticalSection(&g_lock);
     return EXCEPTION_CONTINUE_SEARCH;
+}
+
+// Fatal CRT exits: the engine's allocator calls abort() when a heap chunk is bad (double free,
+// overrun), and _purecall/_invalid_parameter/_amsg_exit end the process the same way. None of
+// them raise an exception, so the logger above never sees them and Steam's crash handler then
+// overwrites the stack. Log the caller chain first, then run the original.
+struct FatalImport {
+    uintptr_t slot;        // trialsFMX import address table entry (MSVCR90)
+    const char* name;
+    void* original;
+};
+FatalImport g_fatal[] = {
+    {0xd283d8, "abort", nullptr},
+    {0xd283b4, "_purecall", nullptr},
+    {0xd283d4, "_invalid_parameter_noinfo", nullptr},
+    {0xd28348, "_amsg_exit", nullptr},
+    {0xd283cc, "exit", nullptr},
+    {0xd285b8, "_exit", nullptr},
+    {0xd28158, "TerminateProcess", nullptr},    // KERNEL32; a game that quits itself leaves no exception
+};
+
+void __cdecl log_fatal(int which, const DWORD* sp) {
+    char line[1024];
+    int n = sprintf_s(line, "FATAL %s called from %08lx thread %lu stack:", g_fatal[which].name, sp[0], GetCurrentThreadId());
+    __try {
+        int found = 0;
+        for (int i = 1; i < 4096 && found < 32; i++) {
+            DWORD v = sp[i];
+            if (is_code(v) && looks_like_return(v)) {
+                n += sprintf_s(line + n, sizeof line - n, " %08lx", v);
+                found++;
+            }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    EnterCriticalSection(&g_lock);
+    fprintf(g_file, "%s\n", line);
+    fflush(g_file);
+    LeaveCriticalSection(&g_lock);
+}
+
+#define FATAL_THUNK(i)                                       \
+    __declspec(naked) void fatal_thunk_##i() {               \
+        __asm { pushad }                                     \
+        __asm { lea eax, [esp + 32] }                        \
+        __asm { push eax }                                   \
+        __asm { push i }                                     \
+        __asm { call log_fatal }                             \
+        __asm { add esp, 8 }                                 \
+        __asm { popad }                                      \
+        __asm { jmp dword ptr [g_fatal + i * 12 + 8] }       \
+    }
+FATAL_THUNK(0)
+FATAL_THUNK(1)
+FATAL_THUNK(2)
+FATAL_THUNK(3)
+FATAL_THUNK(4)
+FATAL_THUNK(5)
+FATAL_THUNK(6)
+
+void hook_fatal_imports() {
+    void (*thunks[])() = {fatal_thunk_0, fatal_thunk_1, fatal_thunk_2, fatal_thunk_3, fatal_thunk_4, fatal_thunk_5, fatal_thunk_6};
+    for (int i = 0; i < 7; i++) {
+        void** slot = (void**)g_fatal[i].slot;
+        DWORD old;
+        if (!VirtualProtect(slot, 4, PAGE_READWRITE, &old)) continue;
+        g_fatal[i].original = *slot;
+        *slot = (void*)thunks[i];
+        VirtualProtect(slot, 4, old, &old);
+    }
 }
 
 // Hang watchdog: when the engine log goes quiet, record where every game thread is (instruction
@@ -247,6 +328,7 @@ void start_gamelog_hook() {
     InitializeCriticalSection(&g_lock);
     _set_invalid_parameter_handler(ignore_invalid_parameter);
     AddVectoredExceptionHandler(1, exception_logger);
+    hook_fatal_imports();
     g_main_thread_id = GetCurrentThreadId();   // DllMain runs on the game's main thread at startup
     if (HANDLE w = CreateThread(nullptr, 0, hang_watchdog, nullptr, 0, nullptr)) CloseHandle(w);
 

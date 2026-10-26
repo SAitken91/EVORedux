@@ -27,7 +27,7 @@ EXPORTS
     ?Read@SavegameReader@orbitclient@mg@@QAEXIPAVISavegameReadListener@23@IPAXI@Z=ubiorbitapi_r2_loader_orig.?Read@SavegameReader@orbitclient@mg@@QAEXIPAVISavegameReadListener@23@IPAXI@Z
     ?RemoveSavegame@OrbitClient@orbitclient@mg@@QAEXIPAVIRemoveSavegameListener@23@II@Z=ubiorbitapi_r2_loader_orig.?RemoveSavegame@OrbitClient@orbitclient@mg@@QAEXIPAVIRemoveSavegameListener@23@II@Z
     ?SetName@SavegameWriter@orbitclient@mg@@QAE_NPAG@Z=ubiorbitapi_r2_loader_orig.?SetName@SavegameWriter@orbitclient@mg@@QAE_NPAG@Z
-    ?StartLauncher@OrbitClient@orbitclient@mg@@QAE_NIIPBD0@Z=ubiorbitapi_r2_loader_orig.?StartLauncher@OrbitClient@orbitclient@mg@@QAE_NIIPBD0@Z
+    ?StartLauncher@OrbitClient@orbitclient@mg@@QAE_NIIPBD0@Z
     ?StartProcess@OrbitClient@orbitclient@mg@@QAEXPAG00@Z=ubiorbitapi_r2_loader_orig.?StartProcess@OrbitClient@orbitclient@mg@@QAEXPAG00@Z
-    ?Update@OrbitClient@orbitclient@mg@@QAEXXZ=ubiorbitapi_r2_loader_orig.?Update@OrbitClient@orbitclient@mg@@QAEXXZ
+    ?Update@OrbitClient@orbitclient@mg@@QAEXXZ
     ?Write@SavegameWriter@orbitclient@mg@@QAEXIPAVISavegameWriteListener@23@PAXI@Z=ubiorbitapi_r2_loader_orig.?Write@SavegameWriter@orbitclient@mg@@QAEXIPAVISavegameWriteListener@23@PAXI@Z

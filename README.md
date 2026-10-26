@@ -33,6 +33,8 @@ leaderboards fill up again — let's bring the glory back to them.
   thousands of archived historical scores (see [Get Track Central tracks](#get-track-central-tracks)
   and [Legacy spots](#legacy-spots-the-historical-scores))
 - ✅ Occasional revival messages in the main-menu news ticker
+- ✅ **Xbox 360 DLC packs run on PC** — Origin of Pain and Riders of Doom, including Neverending
+  Trials, fire effects and their leaderboards (see [Xbox 360 DLC](#xbox-360-dlc))
 
 ## The plan
 
@@ -116,6 +118,24 @@ the Steam forums:
 With EVO Redux installed they're **playable with working leaderboards**, including the original
 scores from before the shutdown ([Legacy spots](#legacy-spots-the-historical-scores)). Set a
 time and you're on the board with them.
+
+---
+
+## Xbox 360 DLC
+
+The PC Gold Edition never got the Xbox 360 DLC packs. EVO Redux makes them run on PC:
+**Origin of Pain** and **Riders of Doom**, including Neverending Trials with its endless
+generated rounds, the fire effects, and online leaderboards for every DLC track.
+
+EVO Redux does **not** include the DLC itself. The tracks and assets belong to Ubisoft/RedLynx
+and are not distributed here. You need your own copy of the DLC packs, dumped from your own
+Xbox 360, converted for the PC game and placed in `datapack\DLCContent\OriginofPain` and
+`datapack\DLCContent\RidersofDoom`.
+
+A guided importer that does the conversion for you is in progress. Until then, the conversion
+tools are in [`tools/`](tools) (`stfs_extract.py`, `dlc_convert.py` and the other `dlc_*.py`
+scripts) for anyone comfortable running Python. The installer already switches on the DLC
+fixes, so once the packs are in place there is nothing else to set up.
 
 ---
 

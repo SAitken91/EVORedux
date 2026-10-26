@@ -33,9 +33,9 @@ class STFS:
         """Logical data block -> physical block index (hash tables interleaved)."""
         base = ((block + 0xAA) // 0xAA) << self.shift
         ret = base + block
-        if block > 0xAA:
+        if block >= 0xAA:
             ret += ((block + 0x70E4) // 0x70E4) << self.shift
-            if block > 0x70E4:
+            if block >= 0x70E4:
                 ret += ((block + 0x4AF768) // 0x4AF768) << self.shift
         return ret
 

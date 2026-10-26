@@ -103,9 +103,16 @@ void maybe_start_dlc() {
     char* dlc = game ? *(char**)(game + 0x9c) : nullptr;
     if (!session || !dlc || !*(unsigned char*)(session + 0x24)) return;   // not signed in yet
     if (!*(void**)(game + 0xa0)) return;   // event manager (pack events register into it) not built yet
+    // LoadThreadClass::run (0x436962) sets this when the game's loading is done. Before that the
+    // init thread is still setting up the menu track's trigger logic; running the pack loader
+    // (XML parsing, bike/sound loading) beside it once left a hash table it shares corrupted and
+    // the init thread spinning in its insert (0x6040e0), a hang on the loading screen.
+    if (!*(volatile unsigned char*)0x1ee3541) return;
     g_dlc_state = 2;
     ((JobStartFn)DLC_JOB_START)(dlc);
-    shim_log("dlc: started DLC enumeration job");
+    char line[96];
+    sprintf_s(line, "dlc: started DLC enumeration job (thread %lu)", GetCurrentThreadId());
+    shim_log(line);
 }
 
 void* __fastcall get_text_hook(void* self, void* /*edx*/, const char* key) {

@@ -95,6 +95,8 @@ if (Get-Process trialsFMX -ErrorAction SilentlyContinue) {
 $loader = Join-Path $datapack "ubiorbitapi_r2_loader.dll"
 $orig = Join-Path $datapack "ubiorbitapi_r2_loader_orig.dll"
 $hostFiles = @((Join-Path $game "OnlineConfigHost.txt"), (Join-Path $datapack "OnlineConfigHost.txt"))
+# Opt-in markers for the DLC runtime fixes (portals, vector logic); they only act on DLC tracks.
+$dlcMarkers = @((Join-Path $datapack "trials_revive_portals.txt"), (Join-Path $datapack "trials_revive_vector_runtime.txt"))
 
 try {
     if ($Uninstall) {
@@ -103,6 +105,7 @@ try {
             if (Test-Path -LiteralPath "$f.before-revival") { Move-Item -Force -LiteralPath "$f.before-revival" -Destination $f }
             elseif (Test-Path -LiteralPath $f) { Remove-Item -Force -LiteralPath $f }
         }
+        foreach ($m in $dlcMarkers) { if (Test-Path -LiteralPath $m) { Remove-Item -Force -LiteralPath $m } }
         Write-Host "Removed. The game is back to its original files." -ForegroundColor Green
         Write-Host "Your trials_revive_login.key was kept in the datapack folder in case you come back."
         Pause-Exit 0
@@ -118,6 +121,7 @@ try {
         if ((Test-Path -LiteralPath $f) -and -not (Test-Path -LiteralPath "$f.before-revival")) { Copy-Item -LiteralPath $f -Destination "$f.before-revival" }
         [IO.File]::WriteAllText($f, $ServerHost)
     }
+    foreach ($m in $dlcMarkers) { [IO.File]::WriteAllText($m, "on") }
 } catch {
     Write-Host "Install failed: $($_.Exception.Message)" -ForegroundColor Red
     Write-Host "Try right-clicking INSTALL.bat and choosing 'Run as administrator'."

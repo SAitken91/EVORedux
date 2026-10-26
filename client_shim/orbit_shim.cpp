@@ -19,12 +19,14 @@
 // the game read as mangled UTF-16 (still derived from the key, never the real password).
 //
 // ticker_hook.cpp adds occasional revival messages to the main-menu news ticker.
+#include <winsock2.h>
 #include <windows.h>
 #include <bcrypt.h>
 #include <stdio.h>
 #include <string.h>
 
 #pragma comment(lib, "bcrypt.lib")
+#pragma comment(lib, "ws2_32.lib")
 
 namespace mg { namespace orbitclient {
 
@@ -37,6 +39,8 @@ public:
 class OrbitClient {
 public:
     void GetLoginDetails(unsigned int requestUniqueId, IGetLoginDetailsListener* listener);
+    bool StartLauncher(unsigned int productId, unsigned int flags, const char* language, const char* args);
+    void Update();
 };
 
 }}  // namespace mg::orbitclient
@@ -49,6 +53,37 @@ void start_dlc_fixes();     // dlc_fixes.cpp (only with DLCContent)
 
 static HMODULE g_self;
 static char g_key[64];
+
+// Development aid: a second copy of the game on the same PC can log in as a separate test player.
+// With TRIALS_REVIVE_PROFILE=<n> set in its environment it uses trials_revive_login_<n>.key and the
+// account name "<name>_P<n>". Unset (the normal case) nothing changes.
+static const char* test_profile() {
+    static char profile[8];
+    static bool read;
+    if (!read) {
+        read = true;
+        DWORD n = GetEnvironmentVariableA("TRIALS_REVIVE_PROFILE", profile, sizeof profile);
+        if (n == 0 || n >= sizeof profile) profile[0] = 0;
+        if (!profile[0]) {   // or a trials_revive_profile.txt next to the game (a separate test install)
+            char path[MAX_PATH];
+            DWORD len = GetModuleFileNameA(nullptr, path, MAX_PATH);
+            while (len && path[len - 1] != '\\') len--;
+            FILE* f = nullptr;
+            if (len && len + 32 < MAX_PATH) {
+                lstrcpyA(path + len, "trials_revive_profile.txt");
+                if (fopen_s(&f, path, "r") == 0 && f) {
+                    if (!fgets(profile, sizeof profile, f)) profile[0] = 0;
+                    fclose(f);
+                    for (char* p = profile; *p; p++)
+                        if (*p == '\r' || *p == '\n' || *p == ' ') *p = 0;
+                }
+            }
+        }
+        for (char* p = profile; *p; p++)
+            if (!((*p >= '0' && *p <= '9') || (*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z'))) profile[0] = 0;
+    }
+    return profile[0] ? profile : nullptr;
+}
 
 void shim_log(const char* msg) {
     char path[MAX_PATH];
@@ -73,7 +108,10 @@ static const char* login_key() {
     DWORD n = GetModuleFileNameA(g_self, path, MAX_PATH);
     while (n && path[n - 1] != '\\') n--;
     if (!n || n + 32 > MAX_PATH) n = 0;
-    lstrcpyA(path + n, "trials_revive_login.key");
+    if (const char* profile = test_profile())
+        sprintf_s(path + n, MAX_PATH - n, "trials_revive_login_%s.key", profile);
+    else
+        lstrcpyA(path + n, "trials_revive_login.key");
 
     FILE* f = nullptr;
     if (fopen_s(&f, path, "r") == 0 && f) {
@@ -123,12 +161,21 @@ public:
         delete this;
         // The password argument is a UTF-16 string (the callback converts it with mode 2 =
         // UTF-16 -> UTF-8 at 0x73a03b); the user name and CD key are narrow strings.
+        char profile_name[96];
+        if (const char* profile = test_profile()) {
+            sprintf_s(profile_name, "%s_P%s", userName ? userName : "Player", profile);
+            userName = profile_name;
+            shim_log("test profile: logging in as a separate player");
+        }
         inner->GetLoginDetailsListenerCallback(requestUniqueId, userName, (const char*)login_key_wide(), login_key());
     }
 
 private:
     IGetLoginDetailsListener* inner_;
 };
+
+static LoginListener* g_pending_login;   // test profile: answered from the next Update()
+static unsigned int g_pending_login_id;
 
 typedef void(__thiscall* GetLoginDetailsFn)(void* self, unsigned int requestUniqueId, IGetLoginDetailsListener* listener);
 
@@ -141,12 +188,57 @@ void mg::orbitclient::OrbitClient::GetLoginDetails(unsigned int requestUniqueId,
             real = (GetLoginDetailsFn)GetProcAddress(
                 orig, "?GetLoginDetails@OrbitClient@orbitclient@mg@@QAEXIPAVIGetLoginDetailsListener@23@@Z");
     }
+    if (test_profile() && listener) {
+        // A test copy is started outside Ubisoft Connect (see StartLauncher), which has no login
+        // to give it: log it in as a separate test player. Like the real client, answer from the
+        // next Update() call: answering here, during startup, crashes the game (0x728b3f).
+        shim_log("test profile: logging in without Ubisoft Connect");
+        g_pending_login = new LoginListener(listener);
+        g_pending_login_id = requestUniqueId;
+        return;
+    }
     if (!real) {
         shim_log("ubiorbitapi_r2_loader_orig.dll is missing: online login is unavailable");
         return;   // the game then just stays offline
     }
     login_key();
     real(this, requestUniqueId, listener ? new LoginListener(listener) : nullptr);
+}
+
+typedef void(__thiscall* UpdateFn)(void* self);
+
+void mg::orbitclient::OrbitClient::Update() {
+    if (LoginListener* pending = g_pending_login) {
+        g_pending_login = nullptr;
+        pending->GetLoginDetailsListenerCallback(g_pending_login_id, "Tester", "", "");
+    }
+    static UpdateFn real = nullptr;
+    if (!real) {
+        HMODULE orig = GetModuleHandleA("ubiorbitapi_r2_loader_orig.dll");
+        if (!orig) orig = LoadLibraryA("ubiorbitapi_r2_loader_orig.dll");
+        if (orig) real = (UpdateFn)GetProcAddress(orig, "?Update@OrbitClient@orbitclient@mg@@QAEXXZ");
+    }
+    if (real) real(this);
+}
+
+// At startup the game calls StartLauncher (0x73a2e5); when it returns true the game exits so that
+// Ubisoft Connect can start it. A second copy would be handed to Ubisoft Connect, which just shows
+// the running one. Test-profile copies skip the hand-off and keep running.
+typedef bool(__thiscall* StartLauncherFn)(void* self, unsigned int productId, unsigned int flags, const char* language, const char* args);
+
+bool mg::orbitclient::OrbitClient::StartLauncher(unsigned int productId, unsigned int flags, const char* language, const char* args) {
+    if (test_profile()) {
+        shim_log("test profile: not handing the game over to Ubisoft Connect");
+        return false;
+    }
+    static StartLauncherFn real = nullptr;
+    if (!real) {
+        HMODULE orig = GetModuleHandleA("ubiorbitapi_r2_loader_orig.dll");
+        if (!orig) orig = LoadLibraryA("ubiorbitapi_r2_loader_orig.dll");
+        if (orig)
+            real = (StartLauncherFn)GetProcAddress(orig, "?StartLauncher@OrbitClient@orbitclient@mg@@QAE_NIIPBD0@Z");
+    }
+    return real ? real(this, productId, flags, language, args) : false;
 }
 
 // Server gate: the game fetches its online config from the host in OnlineConfigHost.txt with a
@@ -226,11 +318,116 @@ static void use_revival_config_id() {
     if (t) CloseHandle(t);
 }
 
+// Multiplayer crash: entering Multiplayer > Online, the party code at 0x73a730 calls
+// UPLAY_PARTY_GetFullMemberList(&list) and walks list {count, members[]} without checking the
+// result. With Ubisoft's party service gone, Ubisoft Connect hands back a nonzero count with
+// null members, and the game reads member 0 through a null pointer (0x73a7ba). Clear the list
+// first and pass on only a list whose members are all readable; otherwise report no party.
+static const uintptr_t PARTY_MEMBER_LIST_IAT = 0xd289e8;   // uplay_r1_loader!UPLAY_PARTY_GetFullMemberList
+typedef int(__cdecl* PartyMemberListFn)(DWORD* list);
+static PartyMemberListFn g_party_member_list;
+
+static bool readable(const void* p, size_t n) {
+    MEMORY_BASIC_INFORMATION mbi;
+    if (!p || !VirtualQuery(p, &mbi, sizeof mbi) || mbi.State != MEM_COMMIT ||
+        (mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)))
+        return false;
+    return (const char*)p + n <= (const char*)mbi.BaseAddress + mbi.RegionSize;
+}
+
+static int __cdecl safe_party_member_list(DWORD* list) {
+    list[0] = list[1] = 0;
+    int result = g_party_member_list(list);
+    DWORD count = list[0];
+    const DWORD* members = (const DWORD*)list[1];
+    bool ok = count <= 16 && (count == 0 || readable(members, count * sizeof(DWORD)));
+    for (DWORD i = 0; ok && i < count; i++)
+        ok = readable((const void*)members[i], 8);
+    if (!ok) {
+        static LONG logged;
+        if (!InterlockedExchange(&logged, 1)) shim_log("party: Ubisoft Connect returned an unusable member list, treating it as no party");
+        list[0] = list[1] = 0;
+    }
+    return result;
+}
+
+static void guard_party_member_list() {
+    void** slot = (void**)PARTY_MEMBER_LIST_IAT;
+    HMODULE uplay = GetModuleHandleA("uplay_r1_loader.dll");
+    if ((uintptr_t)GetModuleHandleA(nullptr) != 0x400000 || !uplay ||
+        *slot != (void*)GetProcAddress(uplay, "UPLAY_PARTY_GetFullMemberList")) {
+        shim_log("unknown game build: multiplayer party fix not applied");
+        return;
+    }
+    DWORD old;
+    if (!VirtualProtect(slot, sizeof *slot, PAGE_READWRITE, &old)) return;
+    g_party_member_list = (PartyMemberListFn)*slot;
+    *slot = (void*)safe_party_member_list;
+    VirtualProtect(slot, sizeof *slot, old, &old);
+    shim_log("multiplayer fix: party member list is checked");
+}
+
+// Test profile only: the game refuses to start twice (it looks for an existing "TrialsPCMainWnd"
+// window, brings it to the front and exits). A test-profile copy doesn't see that window.
+static const uintptr_t FIND_WINDOW_A_IAT = 0xd28684;   // USER32!FindWindowA
+typedef HWND(WINAPI* FindWindowAFn)(LPCSTR cls, LPCSTR title);
+static FindWindowAFn g_find_window;
+
+static HWND WINAPI test_profile_find_window(LPCSTR cls, LPCSTR title) {
+    if (cls && !IS_INTRESOURCE(cls) && lstrcmpA(cls, "TrialsPCMainWnd") == 0) return nullptr;
+    return g_find_window(cls, title);
+}
+
+// Test profile only: two copies on one PC would both open the game port (UDP 3050) and the Quazal
+// port (3074); Windows lets them share it, and a joining copy then sees the host's address as its
+// own and refuses to connect. A test-profile copy moves to 3060 / 3084 instead.
+static const uintptr_t WSOCK_BIND_IAT = 0xd28778;   // WSOCK32!bind (ordinal 2)
+typedef int(WINAPI* BindFn)(SOCKET s, const sockaddr* name, int namelen);
+static BindFn g_bind;
+
+static int WINAPI test_profile_bind(SOCKET s, const sockaddr* name, int namelen) {
+    if (name && namelen >= (int)sizeof(sockaddr_in) && name->sa_family == AF_INET) {
+        sockaddr_in moved = *(const sockaddr_in*)name;
+        unsigned short port = ntohs(moved.sin_port);
+        if (port == 3050 || port == 3074) {
+            moved.sin_port = htons(port + 10);
+            return g_bind(s, (const sockaddr*)&moved, sizeof moved);
+        }
+    }
+    return g_bind(s, name, namelen);
+}
+
+static void allow_second_copy() {
+    if (!test_profile()) return;
+    void** bind_slot = (void**)WSOCK_BIND_IAT;
+    HMODULE wsock = GetModuleHandleA("wsock32.dll");
+    DWORD old_bind;
+    if (wsock && *bind_slot == (void*)GetProcAddress(wsock, MAKEINTRESOURCEA(2)) &&
+        VirtualProtect(bind_slot, sizeof *bind_slot, PAGE_READWRITE, &old_bind)) {
+        g_bind = (BindFn)*bind_slot;
+        *bind_slot = (void*)test_profile_bind;
+        VirtualProtect(bind_slot, sizeof *bind_slot, old_bind, &old_bind);
+        shim_log("test profile: game ports moved to 3060 / 3084");
+    }
+    void** slot = (void**)FIND_WINDOW_A_IAT;
+    if ((uintptr_t)GetModuleHandleA(nullptr) != 0x400000 ||
+        *slot != (void*)GetProcAddress(GetModuleHandleA("user32.dll"), "FindWindowA"))
+        return;
+    DWORD old;
+    if (!VirtualProtect(slot, sizeof *slot, PAGE_READWRITE, &old)) return;
+    g_find_window = (FindWindowAFn)*slot;
+    *slot = (void*)test_profile_find_window;
+    VirtualProtect(slot, sizeof *slot, old, &old);
+    shim_log("test profile: running alongside another copy");
+}
+
 BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID) {
     if (reason == DLL_PROCESS_ATTACH) {
         g_self = instance;
         DisableThreadLibraryCalls(instance);
         use_revival_config_id();
+        guard_party_member_list();
+        allow_second_copy();
         start_gamelog_hook();
         start_dlc_fixes();
         start_ticker_hook();
