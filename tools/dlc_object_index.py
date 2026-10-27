@@ -38,6 +38,9 @@ def main():
     next_code = 0x84
     for world, pack in enumerate(('OriginofPain', 'RidersofDoom'), 1):
         root = args.game / 'datapack/DLCContent' / pack
+        if not (root / 'data/data.pak').exists():
+            print(f'{pack}: not installed, skipped', flush=True)
+            continue
         hdr_name = f'vtex/vtex_objects{world+1}.raw.hdr'
         data, entries = read_pak(str(root / 'data/data.pak'))
         hdr = file_data(data, next(e for e in entries if e['hash'] == name_hash(hdr_name)))

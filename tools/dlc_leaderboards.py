@@ -90,6 +90,33 @@ def main(root, pc_pak):
         print(f"  track {t}: leaderboard {m['old']} -> {m['new']}")
 
 
+def apply_fixed(root, mapping):
+    """Give each pack's tracks the leaderboard ids from a saved mapping (the ids the live server's
+    boards use), so a pack converted on its own gets the same ids as when both packs are converted
+    together. Same edit as main(): only the leaderboard_id digits change."""
+    for folder, pack in PACKS:
+        path = os.path.join(root, folder, "data", "configs.pak")
+        if not os.path.exists(path):
+            continue
+        d, files, entry, xml = load_tracks(path, pack)
+        changes = [(m.start(2), m.end(2), mapping[str(t)]["new"]) for t, lb, m in track_ids(xml)
+                   if str(t) in mapping and mapping[str(t)]["pack"] == pack and lb != mapping[str(t)]["new"]]
+        if not changes:
+            print(f"pack{pack}: nothing to change")
+            continue
+        for start, end, new in reversed(changes):
+            xml = xml[:start] + str(new).encode() + xml[end:]
+        out = []
+        for f in files:
+            raw = d[f["offset"]:f["offset"] + f["packed"]]
+            if f is entry:
+                out.append((f["hash"], 8, zlib.compress(xml, 9), len(xml)))
+            else:
+                out.append((f["hash"], f["method"], raw, f["size"]))
+        write_pak(path, out)
+        print(f"pack{pack}: {len(changes)} tracks renumbered in {path}")
+
+
 if __name__ == "__main__":
     main(sys.argv[1] if len(sys.argv) > 1 else r"O:\trialsevo\dlc_pc",
          sys.argv[2] if len(sys.argv) > 2 else DEFAULT_PAK)

@@ -52,6 +52,17 @@ class STFS:
             return num
         return num + (1 << self.shift)
 
+    def verify(self):
+        """Data blocks whose SHA-1 doesn't match their level-0 hash table entry (a damaged dump)."""
+        import hashlib
+        bad = []
+        for block in range(self.total_blocks):
+            self.f.seek(self.data_base + (self.level0_hash_block(block) << 12) + (block % 0xAA) * 0x18)
+            expected = self.f.read(20)
+            if hashlib.sha1(self.read_block(block)).digest() != expected:
+                bad.append(block)
+        return bad
+
     def next_block(self, block):
         hb = self.level0_hash_block(block)
         self.f.seek(self.data_base + (hb << 12) + (block % 0xAA) * 0x18)

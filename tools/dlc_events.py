@@ -133,7 +133,10 @@ def unlock(root):
             new = re.sub(rb"<event [^>]*>", lambda tag: re.sub(rb'\b(license|unlockMedals)="\d+"', rb'\1="0"',
                                                                 tag.group(0)), xml)
             return None if new == xml else (name, 8, zlib.compress(new, 9), len(new))
-        n = rewrite_pak(os.path.join(root, folder, "data", "configs.pak"), edit)
+        path = os.path.join(root, folder, "data", "configs.pak")
+        if not os.path.exists(path):
+            continue
+        n = rewrite_pak(path, edit)
         print(f"pack{pack}: events {'unlocked' if n else 'already unlocked'}")
 
 

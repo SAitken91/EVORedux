@@ -1,0 +1,5 @@
+Put the Trials Evolution DLC files you dumped from your own Xbox 360 in this folder,
+then run IMPORT_DLC.bat.
+
+These are the two ~1 GB package files for Origin of Pain and Riders of Doom (one or both).
+Their file names don't matter - the importer recognises them by their contents.

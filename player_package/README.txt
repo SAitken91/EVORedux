@@ -39,6 +39,17 @@ leaderboards. Back it up. If you reinstall, copy it back into the datapack folde
 Lost it? Contact the server admin to have your name released.
 
 
+XBOX 360 DLC (OPTIONAL)
+-----------------------
+EVO Redux can run the Xbox 360 DLC packs (Origin of Pain, Riders of Doom) on PC. The DLC is not
+included: you need the package files dumped from your own Xbox 360.
+1. Install INSTALL.bat first (above).
+2. Install 64-bit Python 3.10+ from https://www.python.org/downloads/ and tick
+   "Add python.exe to PATH" on its first screen.
+3. Put your DLC files in the DLC folder here (or drag them onto IMPORT_DLC.bat).
+4. Close the game and double-click IMPORT_DLC.bat. It takes about 5 minutes.
+
+
 UNINSTALL
 ---------
 Double-click UNINSTALL.bat. The game goes back to its original files.

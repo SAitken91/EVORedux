@@ -129,13 +129,26 @@ generated rounds, the fire effects, and online leaderboards for every DLC track.
 
 EVO Redux does **not** include the DLC itself. The tracks and assets belong to Ubisoft/RedLynx
 and are not distributed here. You need your own copy of the DLC packs, dumped from your own
-Xbox 360, converted for the PC game and placed in `datapack\DLCContent\OriginofPain` and
-`datapack\DLCContent\RidersofDoom`.
+Xbox 360 (the ~1 GB package files for Origin of Pain and/or Riders of Doom).
 
-A guided importer that does the conversion for you is in progress. Until then, the conversion
-tools are in [`tools/`](tools) (`stfs_extract.py`, `dlc_convert.py` and the other `dlc_*.py`
-scripts) for anyone comfortable running Python. The installer already switches on the DLC
-fixes, so once the packs are in place there is nothing else to set up.
+**Import your DLC (one-time, about 5 minutes):**
+
+1. Install EVO Redux first (`INSTALL.bat`, see [Install](#install-players)).
+2. Install [Python 3.10 or newer](https://www.python.org/downloads/) (64-bit) and tick
+   **"Add python.exe to PATH"** on the installer's first screen.
+3. Put your dumped DLC files in the `DLC` folder of the EVO Redux download (file names don't
+   matter), or drag them onto `IMPORT_DLC.bat`.
+4. Close the game and double-click **`IMPORT_DLC.bat`**.
+
+The importer finds your game, checks the dump against the hashes stored inside it (a damaged
+copy is reported instead of installed), converts everything the PC game needs (textures,
+terrain, tracks, sound, leaderboard ids) and installs it to `datapack\DLCContent`. The DLC
+events are open on the world map straight away. It needs about 6 GB of free space while it
+works; an earlier DLC install is kept in `TrialsPC\dlc_backup`.
+
+The importer is [`tools/dlc_import.py`](tools/dlc_import.py); it runs the individual
+`dlc_*.py` conversion tools in order. Sound is decoded with
+[vgmstream](https://github.com/vgmstream/vgmstream) (included, with its license).
 
 ---
 

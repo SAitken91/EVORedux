@@ -92,7 +92,9 @@ def patch(dlc, base_wrappers, tag):
     return out, [name(w["kids"][0]) for w in add]
 
 
-def main(game):
+def main(game, dlc_root=None):
+    """dlc_root: folder holding the <pack> folders (default: the game's datapack/DLCContent)."""
+    dlc_root = dlc_root or os.path.join(game, "datapack", "DLCContent")
     global BASE
     d, files = read_pak(os.path.join(game, "build", "data", "data.pak"))
     BASE = unpack_entry(d, next(f for f in files if f["hash"] == BASE_COLLECTION))
@@ -100,7 +102,7 @@ def main(game):
     assert set(wrappers) == set(WANTED), wrappers.keys()
     for pack, coll in PACKS:
         for pak in ("configs.pak", "data.pak", "data_misc.pak"):
-            path = os.path.join(game, "datapack", "DLCContent", pack, "data", pak)
+            path = os.path.join(dlc_root, pack, "data", pak)
             if not os.path.exists(path):
                 continue
             d, files = read_pak(path)
