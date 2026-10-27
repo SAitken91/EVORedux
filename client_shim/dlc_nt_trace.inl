@@ -212,7 +212,7 @@ void start_portal_state_hook() {
     if (code_differs((uintptr_t)GA(0x61d720), expected, 5)) return;
     BYTE* st = (BYTE*)VirtualAlloc(nullptr, 10, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
     if (!st) return;
-    memcpy(st, expected, 5); st[5] = 0xe9;
+    memcpy(st, (const void*)GA(0x61d720), 5); st[5] = 0xe9;    // the live bytes (verified above)
     *(int*)(st + 6) = (int)(GA(0x61d725) - ((uintptr_t)st + 10));
     g_state_exec = (StateExecFn)st;
     if (patch_jmp(GA(0x61d720), expected, 5, (void*)&nt_state_exec)) {
@@ -226,7 +226,7 @@ void start_nt_trace() {
     if (code_differs((uintptr_t)GA(0x617810), expected, sizeof expected)) return;
     BYTE* trampoline = (BYTE*)VirtualAlloc(nullptr, 11, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
     if (!trampoline) return;
-    memcpy(trampoline, expected, 6); trampoline[6] = 0xe9;
+    memcpy(trampoline, (const void*)GA(0x617810), 6); trampoline[6] = 0xe9;
     *(int*)(trampoline + 7) = (int)(GA(0x617816) - ((uintptr_t)trampoline + 11));
     g_transform_exec = (TransformExecFn)trampoline;
     g_nt_trace = true;

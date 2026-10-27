@@ -347,7 +347,8 @@ void start_dlc_portals() {
     if (code_differs((uintptr_t)GA(0x47c510), expected, sizeof expected)) { g_portals_enabled = false; return; }
     BYTE* trampoline = (BYTE*)VirtualAlloc(nullptr, 13, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
     if (!trampoline) { g_portals_enabled = false; return; }
-    memcpy(trampoline, expected, 8); trampoline[8] = 0xe9;
+    // Copy the live bytes: they hold the game object's absolute address, which differs per build.
+    memcpy(trampoline, (const void*)GA(0x47c510), 8); trampoline[8] = 0xe9;
     *(int*)(trampoline + 9) = (int)(GA(0x47c518) - ((uintptr_t)trampoline + 13));
     g_tick_original = (TickFn)trampoline;
     if (patch_jmp(GA(0x47c510), expected, sizeof expected, (void*)&portal_tick_hook))

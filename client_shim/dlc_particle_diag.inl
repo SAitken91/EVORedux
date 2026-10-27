@@ -63,7 +63,7 @@ void start_particle_diagnostic() {
     if (code_differs((uintptr_t)GA(0x817c20), expected, sizeof expected)) return;
     BYTE* trampoline = (BYTE*)VirtualAlloc(nullptr, 11, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
     if (!trampoline) return;
-    memcpy(trampoline, expected, 6); trampoline[6] = 0xe9;
+    memcpy(trampoline, (const void*)GA(0x817c20), 6); trampoline[6] = 0xe9;
     *(int*)(trampoline + 7) = (int)(GA(0x817c26) - ((uintptr_t)trampoline + 11));
     g_particle_spawn = (ParticleSpawnFn)trampoline;
     if (patch_jmp(GA(0x817c20), expected, sizeof expected, (void*)&particle_spawn_diag))

@@ -618,7 +618,7 @@ void start_trigger_trace() {
     if (code_differs((uintptr_t)GA(0x6236c0), code, 5)) return;
     BYTE* trampoline = (BYTE*)VirtualAlloc(nullptr, 10, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
     if (!trampoline) return;
-    memcpy(trampoline, code, 5);
+    memcpy(trampoline, (const void*)GA(0x6236c0), 5);      // the live bytes (verified above)
     trampoline[5] = 0xe9;
     *(int*)(trampoline + 6) = (int)(GA(0x6236c5) - ((uintptr_t)trampoline + 10));
     g_trigger_load_original = trampoline;

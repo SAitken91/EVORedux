@@ -335,7 +335,7 @@ void start_gamelog_hook() {
 
     unsigned char* tramp = (unsigned char*)VirtualAlloc(nullptr, 16, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
     if (!tramp) return;
-    memcpy(tramp, LOGGER_PROLOGUE, 5);
+    memcpy(tramp, (const void*)LOGGER, 5);                    // the live bytes (verified above)
     tramp[5] = 0xE9;
     *(int*)(tramp + 6) = (int)(LOGGER + 5 - (uintptr_t)(tramp + 10));
     g_trampoline = tramp;

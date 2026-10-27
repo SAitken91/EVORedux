@@ -330,7 +330,7 @@ bool is_supported_build() {
     if (!game_build_known()) return false;
     const unsigned char expected[] = {0x68, 0xf8, 0x91, 0x8d, 0x01};   // push TICKER_KEY_4
     __try {
-        return memcmp((const void*)TICKER_CALL_SITE, expected, sizeof expected) == 0
+        return code_differs(TICKER_CALL_SITE, expected, sizeof expected) == 0      // translates the pushed address
             && strcmp(TICKER_KEY_4, "TICKER_TEXT_4") == 0;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         return false;
