@@ -46,8 +46,12 @@ included: you need the package files dumped from your own Xbox 360.
 1. Install INSTALL.bat first (above).
 2. Install 64-bit Python 3.10+ from https://www.python.org/downloads/ and tick
    "Add python.exe to PATH" on its first screen.
-3. Put your DLC files in the DLC folder here (or drag them onto IMPORT_DLC.bat).
-4. Close the game and double-click IMPORT_DLC.bat. It takes about 5 minutes.
+3. Put your DLC files in the DLC folder here (or drag them onto IMPORT_DLC.bat). The ~1 GB
+   package files or packs already extracted to folders both work.
+4. Close the game and double-click IMPORT_DLC.bat. It takes about 5 minutes and needs about
+   7 GB of free space while it works.
+If it fails: "Access denied" -> right-click IMPORT_DLC.bat -> Run as administrator. Running it
+again is safe. Each run saves dlc_import_log.txt here; post it when asking for help.
 
 
 UNINSTALL

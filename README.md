@@ -136,15 +136,26 @@ Xbox 360 (the ~1 GB package files for Origin of Pain and/or Riders of Doom).
 1. Install EVO Redux first (`INSTALL.bat`, see [Install](#install-players)).
 2. Install [Python 3.10 or newer](https://www.python.org/downloads/) (64-bit) and tick
    **"Add python.exe to PATH"** on the installer's first screen.
-3. Put your dumped DLC files in the `DLC` folder of the EVO Redux download (file names don't
-   matter), or drag them onto `IMPORT_DLC.bat`.
+3. Extract the EVO Redux zip (right-click → Extract All). Put your dumped DLC in its `DLC`
+   folder, or drag it onto `IMPORT_DLC.bat`. Either the ~1 GB package files or packs you
+   already extracted to folders work; file names and dump language don't matter.
 4. Close the game and double-click **`IMPORT_DLC.bat`**.
 
 The importer finds your game, checks the dump against the hashes stored inside it (a damaged
 copy is reported instead of installed), converts everything the PC game needs (textures,
 terrain, tracks, sound, leaderboard ids) and installs it to `datapack\DLCContent`. The DLC
-events are open on the world map straight away. It needs about 6 GB of free space while it
-works; an earlier DLC install is kept in `TrialsPC\dlc_backup`.
+events are open on the world map straight away. An earlier DLC install is kept in
+`TrialsPC\dlc_backup`.
+
+**If the import doesn't work:**
+
+- It needs about **7 GB of free space** while it works: next to the game if that folder is
+  writable, otherwise in `%LOCALAPPDATA%\EVORedux`. It tells you if a drive is too full.
+- "Access denied": right-click `IMPORT_DLC.bat` → **Run as administrator**.
+- "Python wasn't found": install 64-bit Python 3.10+ with "Add python.exe to PATH" ticked.
+- Running it again is safe: it cleans up an earlier unfinished attempt first.
+- Every run saves **`dlc_import_log.txt`** next to `IMPORT_DLC.bat`. If it still fails,
+  post that file (or a screenshot of the window) when asking for help.
 
 The importer is [`tools/dlc_import.py`](tools/dlc_import.py); it runs the individual
 `dlc_*.py` conversion tools in order. Sound is decoded with
