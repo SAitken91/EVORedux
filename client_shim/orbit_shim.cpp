@@ -206,6 +206,7 @@ void mg::orbitclient::OrbitClient::GetLoginDetails(unsigned int requestUniqueId,
 }
 
 typedef void(__thiscall* UpdateFn)(void* self);
+void dlc_frame();   // ticker_hook.cpp
 
 void mg::orbitclient::OrbitClient::Update() {
     if (LoginListener* pending = g_pending_login) {
@@ -219,6 +220,7 @@ void mg::orbitclient::OrbitClient::Update() {
         if (orig) real = (UpdateFn)GetProcAddress(orig, "?Update@OrbitClient@orbitclient@mg@@QAEXXZ");
     }
     if (real) real(this);
+    dlc_frame();   // ticker_hook.cpp: registers the DLC packs on the main thread once the menu is up
 }
 
 // At startup the game calls StartLauncher (0x73a2e5); when it returns true the game exits so that

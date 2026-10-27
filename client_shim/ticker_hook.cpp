@@ -78,7 +78,10 @@ volatile LONG g_seen_ticker, g_seen_swap;
 const uintptr_t DLC_JOB_START = 0x66c450;
 const unsigned char DLC_JOB_START_CODE[] = {0x8b, 0xc1, 0x80, 0x78, 0x1c, 0x00};   // mov eax,ecx; cmp byte [eax+1Ch],0
 typedef void(__thiscall* JobStartFn)(void* job);
+// DLCEnumerateJob vtable: [1] run = DLCHandler::enumerate (0x654b80), [2] finish (0x653ae0 hand-off).
+const DWORD DLC_JOB_VTABLE = 0x1753890, DLC_JOB_RUN = 0x66c480, DLC_JOB_FINISH = 0x66c490;
 volatile LONG g_dlc_state;   // 0 = not checked, 1 = waiting for sign-in, 2 = started or not needed
+bool g_dlc_from_frame;       // maybe_start_dlc called from dlc_frame (main loop, safe to run inline)
 
 bool dlc_folder_present() {
     char path[MAX_PATH];
@@ -109,15 +112,78 @@ void maybe_start_dlc() {
     // the init thread spinning in its insert (0x6040e0), a hang on the loading screen.
     if (!*(volatile unsigned char*)0x1ee3541) return;
     g_dlc_state = 2;
+    // Queued, the job waited 9-60 s behind other jobs (Track Central enumeration, downloads); a
+    // world map opened meanwhile was built without the DLC. When this runs from the per-frame
+    // dlc_frame() below, run the job's own run/finish slots right here on the main thread instead,
+    // so the packs are registered before the player can reach the map.
+    if (g_dlc_from_frame && *(DWORD*)dlc == DLC_JOB_VTABLE && !*(unsigned char*)(dlc + 0x1c)
+        && ((DWORD*)DLC_JOB_VTABLE)[1] == DLC_JOB_RUN && ((DWORD*)DLC_JOB_VTABLE)[2] == DLC_JOB_FINISH) {
+        DWORD started = GetTickCount();
+        *(unsigned char*)(dlc + 0x1c) = 1;                       // what start() marks: running
+        ((JobStartFn)DLC_JOB_RUN)(dlc);                            // DLCHandler enumerate: registers packs
+        ((JobStartFn)DLC_JOB_FINISH)(dlc);                         // clears the flag, hands over results
+        char line[128];
+        sprintf_s(line, "dlc: DLC packs registered on the main thread in %lu ms (thread %lu)",
+            GetTickCount() - started, GetCurrentThreadId());
+        shim_log(line);
+        return;
+    }
     ((JobStartFn)DLC_JOB_START)(dlc);
     char line[96];
     sprintf_s(line, "dlc: started DLC enumeration job (thread %lu)", GetCurrentThreadId());
     shim_log(line);
 }
 
+// Called by OrbitClient::Update, which the game calls from its main loop every frame. Once the
+// main menu has asked for its text (g_dlc_menu_seen), registers the DLC from here: outside any
+// localisation lookup, which the pack loader adds strings to.
+volatile LONG g_dlc_menu_seen;
+volatile DWORD g_dlc_menu_thread;      // thread that looked up the menu text (the game's main thread)
+volatile LONG g_dlc_frames;            // per-frame calls seen
+volatile DWORD g_dlc_menu_tick;        // when the menu text was first looked up
+void dlc_frame_main() {
+    static DWORD update_thread;
+    DWORD me = GetCurrentThreadId();
+    if (!update_thread) {
+        update_thread = me;
+        char line[120];
+        sprintf_s(line, "dlc: per-frame update first seen on thread %lu", me);
+        shim_log(line);
+    }
+    g_dlc_frames++;
+    if (g_dlc_state == 2) return;
+    // The menu text hooks are not a reliable signal (a player can reach Single Player before the
+    // ticker is ever asked for). maybe_start_dlc's own readiness checks (signed in, event manager
+    // built, loading finished) are what made it safe; once they have held for ~30 frames in a row,
+    // register the DLC right here.
+    static int ready_frames;
+    char* platform = *(char**)0x1ee34cc;
+    char* session = platform ? *(char**)(platform + 0x127c) : nullptr;
+    char* game = *(char**)0x1ee3548;
+    bool ready = session && *(unsigned char*)(session + 0x24) && game && *(char**)(game + 0x9c)
+                 && *(void**)(game + 0xa0) && *(volatile unsigned char*)0x1ee3541;
+    ready_frames = ready ? ready_frames + 1 : 0;
+    if (ready_frames < 30) return;
+    g_dlc_from_frame = true;
+    maybe_start_dlc();
+    g_dlc_from_frame = false;
+}
 void* __fastcall get_text_hook(void* self, void* /*edx*/, const char* key) {
-    // Main menu is up (ticker) or the world map is being built (world names): safe to load DLC.
-    if (key && (strncmp(key, "TICKER_TEXT_", 12) == 0 || strncmp(key, "WORLD_", 6) == 0)) maybe_start_dlc();
+    // The main menu's ticker text is looked up on the game's main thread: from then on the DLC is
+    // registered by dlc_frame_main. World names are also looked up while the map is built (possibly
+    // on another thread); they only drive the fallback.
+    if (key && strncmp(key, "TICKER_TEXT_", 12) == 0 && !g_dlc_menu_seen) {
+        g_dlc_menu_thread = GetCurrentThreadId();
+        g_dlc_menu_tick = GetTickCount();
+        g_dlc_menu_seen = 1;
+        char line[80];
+        sprintf_s(line, "dlc: main menu reached (thread %lu)", GetCurrentThreadId());
+        shim_log(line);
+    }
+    // Fallback (old path, queued job): the inline registration hasn't happened 3 s after the menu.
+    if (key && (strncmp(key, "TICKER_TEXT_", 12) == 0 || strncmp(key, "WORLD_", 6) == 0)
+        && g_dlc_menu_seen && GetTickCount() - g_dlc_menu_tick > 3000)
+        maybe_start_dlc();
     if (g_count && key && strncmp(key, "TICKER_TEXT_", 12) == 0) {
         if (!InterlockedExchange(&g_seen_ticker, 1)) shim_log("first ticker line requested");
         if ((int)(next_random() % 100) < g_chance) {
@@ -252,4 +318,9 @@ DWORD WINAPI ticker_thread(LPVOID) {
 void start_ticker_hook() {
     HANDLE t = CreateThread(nullptr, 0, ticker_thread, nullptr, 0, nullptr);
     if (t) CloseHandle(t);
+}
+
+// Per-frame entry for OrbitClient::Update (orbit_shim.cpp).
+void dlc_frame() {
+    dlc_frame_main();
 }
