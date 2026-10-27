@@ -8,14 +8,14 @@
 
 namespace {
 
-const uintptr_t COUNTER_ENABLED_CHECK = 0x633550;  // cmp byte [esi+70h],0 ; jne 63355a
+const uintptr_t COUNTER_ENABLED_CHECK = GA(0x633550);  // cmp byte [esi+70h],0 ; jne 63355a
 const unsigned char COUNTER_ENABLED_ORIG[6] = {0x80, 0x7e, 0x70, 0x00, 0x75, 0x04};
 
 __declspec(naked) void counter_gate_stub() {
     __asm {
         cmp byte ptr [esi + 0x70], 0
         je blocked
-        push 0x63355a        // enabled: original counting path
+        push ga_63355a        // enabled: original counting path
         ret
     blocked:
         xor al, al           // disabled: do not pass the impulse

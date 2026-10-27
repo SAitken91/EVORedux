@@ -68,7 +68,7 @@ void vector_compute(VectorState* s, void* visited, int depth) {
             *(int*)((BYTE*)s->self + 0x50) = (int)duration;
         // The native curve owns timing, easing, enable/disable and checkpoint
         // state. Use its normalized 0..1 output for every vector component.
-        float phase = ((float(__fastcall*)(void*, void*))0x624960)(s->self, nullptr);
+        float phase = ((float(__fastcall*)(void*, void*))GA(0x624960))(s->self, nullptr);
         s->count = start && end ? (start->count < end->count ? start->count : end->count) : 3;
         for (unsigned k = 0; k < s->count; ++k) {
             float a = start ? start->values[k] : 0.0f;
@@ -82,7 +82,7 @@ void vector_compute(VectorState* s, void* visited, int depth) {
         *(void**)(native + 0x3c) = resolve_dlc_retarget(s->reference);
         for (unsigned k = 0; k < 3; ++k) {
             *(unsigned*)(native + 0x40) = k;
-            s->values[k] = ((float(__fastcall*)(void*, void*))0x62b410)(native, nullptr);
+            s->values[k] = ((float(__fastcall*)(void*, void*))GA(0x62b410))(native, nullptr);
         }
     }
     if (memcmp(s->traced, s->values, sizeof s->traced)) {
@@ -98,7 +98,7 @@ void vector_publish(VectorState* s) {
     if (s->publishing) return;
     s->publishing = true;
     for (unsigned k = 0; k < 2; ++k) if (s->adapters[k])
-        ((void(__fastcall*)(void*, void*, int))0x621ab0)(s->adapters[k], nullptr, 0);
+        ((void(__fastcall*)(void*, void*, int))GA(0x621ab0))(s->adapters[k], nullptr, 0);
     s->publishing = false;
 }
 float __fastcall vector_eval(void* self, void*, void* visited, int depth) {
@@ -115,23 +115,23 @@ float __fastcall vector_value(void* self, void*) {
     return s ? s->values[0] : 0.0f;
 }
 void __fastcall vector_reset(void* self, void*, bool checkpoint) {
-    ((void(__fastcall*)(void*, void*, bool))0x6208c0)(self, nullptr, checkpoint);
+    ((void(__fastcall*)(void*, void*, bool))GA(0x6208c0))(self, nullptr, checkpoint);
     VectorState* s = vector_state(self);
     if (s && s->kind == 0 && (s->reset || !checkpoint))
         memcpy(s->values, s->initial, sizeof s->values);
-    ((void(__fastcall*)(void*, void*, int))0x621ab0)(self, nullptr, 0);
+    ((void(__fastcall*)(void*, void*, int))GA(0x621ab0))(self, nullptr, 0);
 }
 void* __fastcall vector_destroy(void* self, void*, unsigned flags) {
-    DWORD destructor = ((DWORD*)0x150a61c)[0];
+    DWORD destructor = ((DWORD*)GA(0x150a61c))[0];
     VectorState** at = &g_vectors;
     while (*at && (*at)->self != self) at = &(*at)->next;
     if (*at) {
         VectorState* s = *at;
-        if (s->kind == 5) destructor = ((DWORD*)0x146618c)[0];
-        if (s->kind == 2) destructor = ((DWORD*)0x14af43c)[0];
+        if (s->kind == 5) destructor = ((DWORD*)GA(0x146618c))[0];
+        if (s->kind == 2) destructor = ((DWORD*)GA(0x14af43c))[0];
         *at = s->next;
         for (unsigned k = 0; k < 2; ++k) if (s->adapters[k])
-            ((void*(__fastcall*)(void*, void*, unsigned))0x62ec70)(s->adapters[k], nullptr, 1);
+            ((void*(__fastcall*)(void*, void*, unsigned))GA(0x62ec70))(s->adapters[k], nullptr, 1);
         delete s;
     }
     return ((void*(__fastcall*)(void*, void*, unsigned))destructor)(self, nullptr, flags);
@@ -139,10 +139,10 @@ void* __fastcall vector_destroy(void* self, void*, unsigned flags) {
 void* vector_component(VectorState* s, unsigned component) {
     if (!component) return s->self;
     if (!s->adapters[component - 1]) {
-        VectorAdapter* a = (VectorAdapter*)((void*(__cdecl*)(size_t))0x436a40)(sizeof(VectorAdapter));
+        VectorAdapter* a = (VectorAdapter*)((void*(__cdecl*)(size_t))GA(0x436a40))(sizeof(VectorAdapter));
         if (!a) return nullptr;
         memset(a, 0, sizeof *a);
-        ((TriggerCtorFn)0x62e050)(a, nullptr, ((void**)s->self)[1]);
+        ((TriggerCtorFn)GA(0x62e050))(a, nullptr, ((void**)s->self)[1]);
         *(DWORD**)a = g_vector_adapter_vtable;
         a->state = s; a->component = component;
         s->adapters[component - 1] = a;
@@ -160,12 +160,12 @@ float vector_float(void* stream) {
     return v;
 }
 void* vector_ref(void* stream, void* objects) {
-    return ((void*(__cdecl*)(void*, void*, int))0x4d06b0)(stream, objects, 0);
+    return ((void*(__cdecl*)(void*, void*, int))GA(0x4d06b0))(stream, objects, 0);
 }
 int vector_read(VectorState* s, void* stream, void* objects, void* selected, int version) {
     DlcReader r{stream};
     if (s->kind == 5) {
-        int result = ((int(__fastcall*)(void*, void*, void*, void*, int))0x5fcc40)
+        int result = ((int(__fastcall*)(void*, void*, void*, void*, int))GA(0x5fcc40))
             ((BYTE*)s->self + 0x20, nullptr, stream, objects, version);
         if (result) return result;
         s->operation = vector_u32(stream);
@@ -177,7 +177,7 @@ int vector_read(VectorState* s, void* stream, void* objects, void* selected, int
         return s->operation == 0 ? 0 : 0x401;
     }
     if (s->kind == 1) {
-        int result = ((SourceReadFn)0x6236c0)(s->self, nullptr, stream, objects, selected, version);
+        int result = ((SourceReadFn)GA(0x6236c0))(s->self, nullptr, stream, objects, selected, version);
         if (result) return result;
     } else {
         unsigned n = r.u16();
@@ -193,7 +193,7 @@ int vector_read(VectorState* s, void* stream, void* objects, void* selected, int
                 if (!target) continue;
                 void* source = vector_component(s, component);
                 if (!source) return 0x401;
-                ((void(__fastcall*)(void*, void*, void*, DWORD, int))0x622e40)
+                ((void(__fastcall*)(void*, void*, void*, DWORD, int))GA(0x622e40))
                     (source, nullptr, target, selector_property(target, property), 0);
             }
         }
@@ -229,7 +229,7 @@ int vector_read(VectorState* s, void* stream, void* objects, void* selected, int
     return 0;
 }
 unsigned char __fastcall vector_set(void* self, void*) {
-    unsigned char result = ((unsigned char(__fastcall*)(void*, void*))0x61d720)(self, nullptr);
+    unsigned char result = ((unsigned char(__fastcall*)(void*, void*))GA(0x61d720))(self, nullptr);
     VectorState* s = vector_state(self);
     if (s) nt_trace_vector(s, *((BYTE*)self + 0x70) ? "set_vector fired" : "set_vector fired while disabled");
     if (!s || !*((BYTE*)self + 0x70)) return result;
@@ -237,13 +237,13 @@ unsigned char __fastcall vector_set(void* self, void*) {
     for (unsigned k = 0; k < 3; ++k) {
         void* input = selector_input(((void**)self)[1], DLC_PROPERTY_BASE + 502 + k);
         // Evaluate using the engine's real visited table (621ab0), never nullptr.
-        if (input) ((void(__fastcall*)(void*, void*, int))0x621ab0)(input, nullptr, 0);
+        if (input) ((void(__fastcall*)(void*, void*, int))GA(0x621ab0))(input, nullptr, 0);
         values[k] = input ? *(float*)((BYTE*)input + 0x28) : s->values[k];
     }
     float index = (float)s->index;
     void* index_input = selector_input(((void**)self)[1], DLC_PROPERTY_BASE + 501);
     if (index_input) {
-        ((void(__fastcall*)(void*, void*, int))0x621ab0)(index_input, nullptr, 0);
+        ((void(__fastcall*)(void*, void*, int))GA(0x621ab0))(index_input, nullptr, 0);
         index = *(float*)((BYTE*)index_input + 0x28);
     }
     if (!(index >= 0 && index < 100)) return result;
@@ -251,7 +251,7 @@ unsigned char __fastcall vector_set(void* self, void*) {
     if (!s->triple) {
         void* scalar = selector_input(((void**)self)[1], DLC_PROPERTY_BASE + 516);
         if (scalar) {
-            ((void(__fastcall*)(void*, void*, int))0x621ab0)(scalar, nullptr, 0);
+            ((void(__fastcall*)(void*, void*, int))GA(0x621ab0))(scalar, nullptr, 0);
             values[0] = *(float*)((BYTE*)scalar + 0x28);
         }
     }
@@ -262,7 +262,7 @@ unsigned char __fastcall vector_set(void* self, void*) {
         unsigned width = s->triple ? 3 : 1;
         if (at >= target->count || width > target->count - at) continue;
         for (unsigned j = 0; j < width; ++j) target->values[at + j] = values[j];
-        ((void(__fastcall*)(void*, void*, int))0x621ab0)(target->self, nullptr, 0);
+        ((void(__fastcall*)(void*, void*, int))GA(0x621ab0))(target->self, nullptr, 0);
     }
     return result;
 }

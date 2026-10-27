@@ -12,9 +12,9 @@ static_assert(sizeof(PortalNativeBodyList) == 0x4000, "native body-list ABI");
 
 void portal_native_rotate(const float game_rotation[4], const float vector[3], float out[3]) {
     float matrix[16], one[3] = {1,1,1}, zero[3] = {};
-    ((void(__fastcall*)(void*, void*, const float*, const float*, const float*))0x7d49b0)
+    ((void(__fastcall*)(void*, void*, const float*, const float*, const float*))GA(0x7d49b0))
         (matrix, nullptr, game_rotation, one, zero);
-    ((float*(__fastcall*)(void*, void*, float*, const float*))0x46d100)
+    ((float*(__fastcall*)(void*, void*, float*, const float*))GA(0x46d100))
         (matrix, nullptr, out, vector);
 }
 
@@ -24,10 +24,10 @@ void portal_exit_rotation(BYTE* bike, const float source_quat[4], const float de
                           bool preserve_orientation, float out[4]) {
     float from[4], inverse[4];
     if (preserve_orientation) memcpy(from, source_quat, sizeof from);
-    else ((float*(__fastcall*)(void*, void*, float*))0x45adf0)(bike, nullptr, from);
+    else ((float*(__fastcall*)(void*, void*, float*))GA(0x45adf0))(bike, nullptr, from);
     for (unsigned k = 0; k < 3; ++k) inverse[k] = -from[k];
     inverse[3] = from[3];
-    ((float*(__fastcall*)(void*, void*, float*, const float*))0x46b570)
+    ((float*(__fastcall*)(void*, void*, float*, const float*))GA(0x46b570))
         (inverse, nullptr, out, destination_quat);
 }
 
@@ -36,7 +36,7 @@ void portal_exit_rotation(BYTE* bike, const float source_quat[4], const float de
 bool portal_bike_center(BYTE* bike, float out[3]) {
     if (!bike || !*(void**)(bike + 0x4dc)) return false;
     PortalNativeBodyList bodies = {};
-    ((void(__fastcall*)(void*, void*, void*, int, int, int, int))0x7d7c60)
+    ((void(__fastcall*)(void*, void*, void*, int, int, int, int))GA(0x7d7c60))
         (*(void**)(bike + 0x4dc), nullptr, &bodies, 3, 1, 0, 0);
     if (!bodies.count || bodies.count > 4092) return false;
     out[0] = out[1] = out[2] = 0;
@@ -68,7 +68,7 @@ void portal_reproject_bike(BYTE* bike) {
         float position[3], projected[2] = {}, direction[2] = {}, parameter = 0;
         memcpy(position, physics + 0x34, sizeof position);
         unsigned index = 0;
-        ((float*(__fastcall*)(void*, void*, float*, void*, unsigned*, const float*, float*, float*))0x485be0)
+        ((float*(__fastcall*)(void*, void*, float*, void*, unsigned*, const float*, float*, float*))GA(0x485be0))
             (track, nullptr, projected, path, &index, position, direction, &parameter);
         *(unsigned*)(part + 0x90) = index;
         BYTE* def = *(BYTE**)(part + 0x24);
@@ -102,7 +102,7 @@ bool portal_warp_bike_physics(BYTE* bike, const float destination[3], const floa
     BYTE* path = *(BYTE**)(bike + 0x614);
     if (!*(void**)(bike + 0x3c) || !path || *(unsigned*)(path + 0x20) < 3) return false;
     PortalNativeBodyList bodies = {};
-    ((void(__fastcall*)(void*, void*, void*, int, int, int, int))0x7d7c60)
+    ((void(__fastcall*)(void*, void*, void*, int, int, int, int))GA(0x7d7c60))
         (*(void**)(bike + 0x4dc), nullptr, &bodies, 3, 1, 0, 0);
     if (!bodies.count || bodies.count > 4092) return false;
     float center[3] = {};
@@ -128,14 +128,14 @@ bool portal_warp_bike_physics(BYTE* bike, const float destination[3], const floa
         for (unsigned j = 0; j < 3; ++j) offset[j] = old[j] - center[j];
         portal_native_rotate(rotation, offset, moved);
         for (unsigned j = 0; j < 3; ++j) moved[j] += destination[j];
-        ((float*(__fastcall*)(void*, void*, float*))0x7cf770)(body, nullptr, body_quat);
-        ((float*(__fastcall*)(void*, void*, float*, const float*))0x46b570)
+        ((float*(__fastcall*)(void*, void*, float*))GA(0x7cf770))(body, nullptr, body_quat);
+        ((float*(__fastcall*)(void*, void*, float*, const float*))GA(0x46b570))
             (body_quat, nullptr, new_quat, rotation);
         // Physics quaternion convention has the opposite W from scene objects.
         new_quat[3] = -new_quat[3];
-        ((void(__fastcall*)(void*, void*, const float*, const float*, const float*))0x7d49b0)
+        ((void(__fastcall*)(void*, void*, const float*, const float*, const float*))GA(0x7d49b0))
             (matrix, nullptr, new_quat, scale, moved);
-        ((void(__fastcall*)(void*, void*, const float*))0x4543c0)(physics, nullptr, matrix);
+        ((void(__fastcall*)(void*, void*, const float*))GA(0x4543c0))(physics, nullptr, matrix);
         if (!keep_velocity) {
             memset(linear, 0, sizeof linear); memset(angular, 0, sizeof angular);
         } else if (keep_direction) {
@@ -145,8 +145,8 @@ bool portal_warp_bike_physics(BYTE* bike, const float destination[3], const floa
             float speed = sqrtf(linear[0]*linear[0] + linear[1]*linear[1] + linear[2]*linear[2]);
             for (unsigned j = 0; j < 3; ++j) linear[j] = forward[j] * speed;
         }
-        ((void(__fastcall*)(void*, void*, const float*))0x7d4820)(body, nullptr, linear);
-        ((void(__fastcall*)(void*, void*, const float*))0x7d48e0)(body, nullptr, angular);
+        ((void(__fastcall*)(void*, void*, const float*))GA(0x7d4820))(body, nullptr, linear);
+        ((void(__fastcall*)(void*, void*, const float*))GA(0x7d48e0))(body, nullptr, angular);
     }
     portal_reproject_bike(bike);
     return true;

@@ -6,6 +6,7 @@
 // at the logger's entry, appends each formatted line to trials_revive_gamelog.txt, then runs the
 // original logger unchanged. Without the .enable file nothing is patched.
 #include <windows.h>
+#include "game_build.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -16,7 +17,7 @@ void shim_log(const char* msg);
 
 namespace {
 
-const uintptr_t LOGGER = 0x42a5b0;
+const uintptr_t LOGGER = GA(0x42a5b0);
 const unsigned char LOGGER_PROLOGUE[5] = {0x51, 0x8b, 0x44, 0x24, 0x20};   // push ecx; mov eax,[esp+20h]
 const int MAX_LINES = 50000;
 
@@ -100,7 +101,7 @@ __declspec(naked) void logger_hook() {
 // before Steam's crash handler replaces it with its own fast-fail.
 volatile LONG g_exceptions;
 
-bool is_code(DWORD v) { return v >= 0x401000 && v < 0xd28000; }
+bool is_code(DWORD v) { return v >= game_text_start() && v < game_text_end(); }
 
 // True when the bytes before v are a call instruction: call rel32 into game code, call [abs32],
 // call reg, call [reg], call [reg+disp8]. Stricter than "any 0xFF nearby" so that text on the
@@ -154,7 +155,7 @@ LONG CALLBACK exception_logger(EXCEPTION_POINTERS* ep) {
         const DWORD* sp = (const DWORD*)c->Esp;
         n += sprintf_s(line + n, sizeof line - n, " [esp..]:");
         for (int i = 0; i < 12; i++) n += sprintf_s(line + n, sizeof line - n, " %08lx", sp[i]);
-        if ((DWORD)(uintptr_t)ep->ExceptionRecord->ExceptionAddress == 0x6f44a7) {   // event menu: track info at [esp+1Ch]
+        if ((DWORD)(uintptr_t)ep->ExceptionRecord->ExceptionAddress == GA(0x6f44a7)) {   // event menu: track info at [esp+1Ch]
             const unsigned char* ti = (const unsigned char*)sp[7];
             n += sprintf_s(line + n, sizeof line - n, " trackinfo id=%u board=%u", *(const unsigned short*)ti, ti[2]);
         }
@@ -186,13 +187,13 @@ struct FatalImport {
     void* original;
 };
 FatalImport g_fatal[] = {
-    {0xd283d8, "abort", nullptr},
-    {0xd283b4, "_purecall", nullptr},
-    {0xd283d4, "_invalid_parameter_noinfo", nullptr},
-    {0xd28348, "_amsg_exit", nullptr},
-    {0xd283cc, "exit", nullptr},
-    {0xd285b8, "_exit", nullptr},
-    {0xd28158, "TerminateProcess", nullptr},    // KERNEL32; a game that quits itself leaves no exception
+    {GA(0xd283d8), "abort", nullptr},
+    {GA(0xd283b4), "_purecall", nullptr},
+    {GA(0xd283d4), "_invalid_parameter_noinfo", nullptr},
+    {GA(0xd28348), "_amsg_exit", nullptr},
+    {GA(0xd283cc), "exit", nullptr},
+    {GA(0xd285b8), "_exit", nullptr},
+    {GA(0xd28158), "TerminateProcess", nullptr},    // KERNEL32; a game that quits itself leaves no exception
 };
 
 void __cdecl log_fatal(int which, const DWORD* sp) {
@@ -315,7 +316,7 @@ void start_gamelog_hook() {
     char path[MAX_PATH];
     if (!path_next_to_game(path, "trials_revive_gamelog.enable") || GetFileAttributesA(path) == INVALID_FILE_ATTRIBUTES)
         return;
-    if ((uintptr_t)GetModuleHandleA(nullptr) != 0x400000 || memcmp((void*)LOGGER, LOGGER_PROLOGUE, 5) != 0) {
+    if (!game_build_known() || code_differs((uintptr_t)LOGGER, LOGGER_PROLOGUE, 5) != 0) {
         shim_log("game log capture: unknown build, not enabled");
         return;
     }

@@ -6,9 +6,9 @@
 
 namespace {
 
-const uintptr_t IAT_CREATE_DXGI_FACTORY = 0xd287c4;
-const uintptr_t IAT_D3D11_CREATE_DEVICE_SWAPCHAIN = 0xd287a8;
-const uintptr_t IAT_D3D11_CREATE_DEVICE = 0xd287ac;
+const uintptr_t IAT_CREATE_DXGI_FACTORY = GA(0xd287c4);
+const uintptr_t IAT_D3D11_CREATE_DEVICE_SWAPCHAIN = GA(0xd287a8);
+const uintptr_t IAT_D3D11_CREATE_DEVICE = GA(0xd287ac);
 
 FARPROC g_orig_dxgi_factory, g_orig_device_swapchain, g_orig_device;
 

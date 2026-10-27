@@ -10,7 +10,7 @@
 
 namespace {
 
-const uintptr_t ATLAS_FILTER = 0x78b68c;  // cmp byte [edi+4bh],0 ; je 78b6ac (pass)
+const uintptr_t ATLAS_FILTER = GA(0x78b68c);  // cmp byte [edi+4bh],0 ; je 78b6ac (pass)
 // 0x78b692: movzx ecx,byte [edi+4ah] ; compare with current world (original fall-through)
 const unsigned char ATLAS_FILTER_ORIG[6] = {0x80, 0x7f, 0x4b, 0x00, 0x74, 0x1a};
 
@@ -20,10 +20,10 @@ __declspec(naked) void particle_atlas_filter_stub() {
         je pass
         cmp byte ptr [edi + 0x4a], 0
         je pass
-        push 0x78b692  // ATLAS_FILTER_WORLD
+        push ga_78b692  // ATLAS_FILTER_WORLD
         ret
     pass:
-        push 0x78b6ac  // ATLAS_FILTER_PASS
+        push ga_78b6ac  // ATLAS_FILTER_PASS
         ret
     }
 }

@@ -197,7 +197,7 @@ def pick_work_folder(requested, game):
                      + "\nFree up disk space, or run with --work \"<folder on a drive with space>\".")
 
 
-STEAM_BUILD = 0x529D7E1B          # trialsFMX.exe PE timestamp of the Steam build the DLC fixes target
+SUPPORTED_BUILDS = {0x529D7E1B: "Steam", 0x52785567: "Ubisoft Connect"}   # trialsFMX.exe PE timestamps
 
 
 def game_build(game):
@@ -309,13 +309,12 @@ def main():
     check_game(game)
     step(f"game: {game}")
     build = game_build(game)
-    if build != STEAM_BUILD:
+    if build not in SUPPORTED_BUILDS:
         raise SystemExit(
-            f"This game is a different build of trialsFMX.exe ({build:08x}) than the Steam version "
-            f"({STEAM_BUILD:08x}), most likely the Ubisoft Connect version. The DLC fixes only work "
-            "with the Steam version for now, so importing would not make the DLC playable.\n"
-            "Online play, leaderboards and ghosts still work. Ubisoft Connect support for the DLC "
-            "is being worked on - watch the EVO Redux releases.")
+            f"This trialsFMX.exe ({build:08x}) is a game build the DLC fixes don't know (they support "
+            "the Steam and Ubisoft Connect versions). Importing would not make the DLC playable. "
+            "Please post dlc_import_log.txt so support for this version can be added.")
+    step(f"game build: {SUPPORTED_BUILDS[build]}")
     packages = find_packages(args.packages or [os.path.join(os.path.dirname(TOOLS), "DLC")])
     if not packages:
         raise SystemExit("No DLC package files found. Put your dumped DLC files in the DLC folder "

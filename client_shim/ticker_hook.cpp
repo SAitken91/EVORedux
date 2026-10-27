@@ -15,6 +15,7 @@
 // Addresses are from trialsFMX.exe (Steam, fixed base 0x400000) and are checked before anything
 // is patched; any other build is left alone.
 #include <windows.h>
+#include "game_build.h"
 #pragma comment(lib, "user32.lib")   // EnumWindows: find the game window's thread
 #include <winhttp.h>
 #include <stdio.h>
@@ -26,10 +27,10 @@ void shim_log(const char* msg);
 
 namespace {
 
-const uintptr_t LOC_MANAGER_PTR = 0x1eee62c;     // global localization manager
-const uintptr_t STRING_VTABLE = 0xd28f98;        // vtable of the game's string class
-const uintptr_t TICKER_CALL_SITE = 0x69e93c;     // push "TICKER_TEXT_4" in the ticker builder
-const char* const TICKER_KEY_4 = (const char*)0x18d91f8;
+const uintptr_t LOC_MANAGER_PTR = GA(0x1eee62c);     // global localization manager
+const uintptr_t STRING_VTABLE = GA(0xd28f98);        // vtable of the game's string class
+const uintptr_t TICKER_CALL_SITE = GA(0x69e93c);     // push "TICKER_TEXT_4" in the ticker builder
+const char* const TICKER_KEY_4 = (const char*)GA(0x18d91f8);
 const int GET_TEXT_SLOT = 0x1c / 4;
 const int VTABLE_COPY = 64;                      // slots copied; the manager uses far fewer
 
@@ -76,11 +77,11 @@ volatile LONG g_seen_ticker, g_seen_swap;
 // (this hook runs there), after sign-in, and only if a DLCContent folder exists. It is started from
 // the first main-menu ticker lookup: started during loading it crashed registering the pack events
 // (null event table in 0x65dd90) because the game wasn't fully initialised yet.
-const uintptr_t DLC_JOB_START = 0x66c450;
+const uintptr_t DLC_JOB_START = GA(0x66c450);
 const unsigned char DLC_JOB_START_CODE[] = {0x8b, 0xc1, 0x80, 0x78, 0x1c, 0x00};   // mov eax,ecx; cmp byte [eax+1Ch],0
 typedef void(__thiscall* JobStartFn)(void* job);
 // DLCEnumerateJob vtable: [1] run = DLCHandler::enumerate (0x654b80), [2] finish (0x653ae0 hand-off).
-const DWORD DLC_JOB_VTABLE = 0x1753890, DLC_JOB_RUN = 0x66c480, DLC_JOB_FINISH = 0x66c490;
+const DWORD DLC_JOB_VTABLE = GA(0x1753890), DLC_JOB_RUN = GA(0x66c480), DLC_JOB_FINISH = GA(0x66c490);
 volatile LONG g_dlc_state;   // 0 = not checked, 1 = waiting for sign-in, 2 = started or not needed
 bool g_dlc_from_frame;       // maybe_start_dlc called from dlc_frame (main loop, safe to run inline)
 
@@ -101,9 +102,9 @@ bool dlc_supported() {
         // Only the Steam build (loaded at 0x400000) has this code at this address; on other builds
         // the address may not even be mapped (Ubisoft Connect's loads at another base).
         bool code = false;
-        if ((uintptr_t)GetModuleHandleA(nullptr) == 0x400000) {
+        if (game_build_known()) {
             __try {
-                code = memcmp((void*)DLC_JOB_START, DLC_JOB_START_CODE, sizeof DLC_JOB_START_CODE) == 0;
+                code = code_differs((uintptr_t)DLC_JOB_START, DLC_JOB_START_CODE, sizeof DLC_JOB_START_CODE) == 0;
             } __except (EXCEPTION_EXECUTE_HANDLER) {
                 code = false;
             }
@@ -124,11 +125,11 @@ bool dlc_supported() {
 // The game's readiness for loading DLC: signed in, event manager built, loading finished.
 bool dlc_game_ready() {
     __try {
-        char* platform = *(char**)0x1ee34cc;
+        char* platform = *(char**)GA(0x1ee34cc);
         char* session = platform ? *(char**)(platform + 0x127c) : nullptr;
-        char* game = *(char**)0x1ee3548;
+        char* game = *(char**)GA(0x1ee3548);
         return session && *(unsigned char*)(session + 0x24) && game && *(char**)(game + 0x9c)
-               && *(void**)(game + 0xa0) && *(volatile unsigned char*)0x1ee3541;
+               && *(void**)(game + 0xa0) && *(volatile unsigned char*)GA(0x1ee3541);
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         return false;
     }
@@ -136,9 +137,9 @@ bool dlc_game_ready() {
 
 void maybe_start_dlc() {
     if (!dlc_supported()) return;
-    char* platform = *(char**)0x1ee34cc;
+    char* platform = *(char**)GA(0x1ee34cc);
     char* session = platform ? *(char**)(platform + 0x127c) : nullptr;
-    char* game = *(char**)0x1ee3548;
+    char* game = *(char**)GA(0x1ee3548);
     char* dlc = game ? *(char**)(game + 0x9c) : nullptr;
     if (!session || !dlc || !*(unsigned char*)(session + 0x24)) return;   // not signed in yet
     if (!*(void**)(game + 0xa0)) return;   // event manager (pack events register into it) not built yet
@@ -146,7 +147,7 @@ void maybe_start_dlc() {
     // init thread is still setting up the menu track's trigger logic; running the pack loader
     // (XML parsing, bike/sound loading) beside it once left a hash table it shares corrupted and
     // the init thread spinning in its insert (0x6040e0), a hang on the loading screen.
-    if (!*(volatile unsigned char*)0x1ee3541) return;
+    if (!*(volatile unsigned char*)GA(0x1ee3541)) return;
     g_dlc_state = 2;
     // Queued, the job waited 9-60 s behind other jobs (Track Central enumeration, downloads); a
     // world map opened meanwhile was built without the DLC. When this runs from the per-frame
@@ -326,7 +327,7 @@ void fetch_config() {
 }
 
 bool is_supported_build() {
-    if ((uintptr_t)GetModuleHandleA(nullptr) != 0x400000) return false;
+    if (!game_build_known()) return false;
     const unsigned char expected[] = {0x68, 0xf8, 0x91, 0x8d, 0x01};   // push TICKER_KEY_4
     __try {
         return memcmp((const void*)TICKER_CALL_SITE, expected, sizeof expected) == 0

@@ -108,13 +108,13 @@ void portal_hit_bike(void* portal, BYTE* bike) {
         portal_log(line);
         BYTE* manager = *(BYTE**)(*(BYTE**)GAME_GLOBAL + 0x60);
         if (manager && *(DWORD*)(manager + 0xb0)) {
-            void* active = ((void*(__fastcall*)(void*, void*, void*))0x5fd960)
+            void* active = ((void*(__fastcall*)(void*, void*, void*))GA(0x5fd960))
                 (manager, nullptr, *(void**)(hit + 0x4c));
             sprintf_s(line, "Hit live-lookup registered=%p active=%p", hit, active);
             portal_log(line);
         }
         if (watches) {
-            ((void(__fastcall*)(void*, void*, const void*, const void*, const void*, const void*))0x60c170)
+            ((void(__fastcall*)(void*, void*, const void*, const void*, const void*, const void*))GA(0x60c170))
                 (hit, nullptr, pair, nullptr, categories, details);
             sprintf_s(line, "Hit after owner=%d enabled=%u last=%lu first=%lu",
                 nt_object_index(*(void**)(hit + 0x4c)), hit[0x50], *(DWORD*)(hit + 0x58), *(DWORD*)(hit + 0x5c));
@@ -205,7 +205,7 @@ void object_world_position(void* object, float out[3]) {
     *(void**)(native + 0x3c) = object;
     for (unsigned k = 0; k < 3; ++k) {
         *(unsigned*)(native + 0x40) = k;
-        out[k] = ((float(__fastcall*)(void*, void*))0x62b410)(native, nullptr);
+        out[k] = ((float(__fastcall*)(void*, void*))GA(0x62b410))(native, nullptr);
     }
 }
 
@@ -232,8 +232,8 @@ bool portal_complete_warp(BYTE* bike, DlcPortal& q) {
     object_world_position(q.owner, source);
     object_world_position(q.target, destination);
     if (!portal_bike_center(bike, center)) return false;
-    ((float*(__fastcall*)(void*, void*, float*))0x7d7850)(q.owner, nullptr, from_quat);
-    ((float*(__fastcall*)(void*, void*, float*))0x7d7850)(q.target, nullptr, to_quat);
+    ((float*(__fastcall*)(void*, void*, float*))GA(0x7d7850))(q.owner, nullptr, from_quat);
+    ((float*(__fastcall*)(void*, void*, float*))GA(0x7d7850))(q.target, nullptr, to_quat);
     portal_exit_rotation(bike, from_quat, to_quat, q.flags[7] != 0, delta);
     if (q.flags[2]) { // Preserve Relative Position
         float inverse[4] = {-from_quat[0],-from_quat[1],-from_quat[2],from_quat[3]};
@@ -344,13 +344,13 @@ void start_dlc_portals() {
     if (!g_portals_enabled) return;
     start_portal_state_hook();
     const BYTE expected[] = {0x83,0xec,0x14,0xa1,0x48,0x35,0xee,0x01};   // GameProcessor::runTickLogic
-    if (memcmp((void*)0x47c510, expected, sizeof expected)) { g_portals_enabled = false; return; }
+    if (code_differs((uintptr_t)GA(0x47c510), expected, sizeof expected)) { g_portals_enabled = false; return; }
     BYTE* trampoline = (BYTE*)VirtualAlloc(nullptr, 13, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
     if (!trampoline) { g_portals_enabled = false; return; }
     memcpy(trampoline, expected, 8); trampoline[8] = 0xe9;
-    *(int*)(trampoline + 9) = (int)(0x47c518 - ((uintptr_t)trampoline + 13));
+    *(int*)(trampoline + 9) = (int)(GA(0x47c518) - ((uintptr_t)trampoline + 13));
     g_tick_original = (TickFn)trampoline;
-    if (patch_jmp(0x47c510, expected, sizeof expected, (void*)&portal_tick_hook))
+    if (patch_jmp(GA(0x47c510), expected, sizeof expected, (void*)&portal_tick_hook))
         shim_log("portal: Neverending whole-bike physics, portal states and driving-line relocation enabled");
     else
         g_portals_enabled = false;

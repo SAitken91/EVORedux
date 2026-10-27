@@ -21,6 +21,7 @@
 // ticker_hook.cpp adds occasional revival messages to the main-menu news ticker.
 #include <winsock2.h>
 #include <windows.h>
+#include "game_build.h"
 #include <bcrypt.h>
 #include <stdio.h>
 #include <string.h>
@@ -248,7 +249,7 @@ bool mg::orbitclient::OrbitClient::StartLauncher(unsigned int productId, unsigne
 // answers a revival-specific ID, which this DLL puts in place of Ubisoft's. A game started
 // without this DLL asks for Ubisoft's ID, gets "not found", stays offline exactly as with the
 // original dead servers, and so never reaches the login step that would send the real password.
-static const uintptr_t ONLINE_CONFIG_ID = 0x1a910f8;
+static const uintptr_t ONLINE_CONFIG_ID = GA(0x1a910f8);
 static const char UBISOFT_CONFIG_ID[] = "e940a83f3cc84074a9933a0f360a0b69";
 static const char REVIVAL_CONFIG_ID[] = "c5855ba01ddd954b564be2c8a4ab86e4";   // must match server.py
 
@@ -305,7 +306,7 @@ static DWORD WINAPI retry_config_id(LPVOID) {
 static void use_revival_config_id() {
     static_assert(sizeof UBISOFT_CONFIG_ID == sizeof REVIVAL_CONFIG_ID, "same length");
     char* id = (char*)ONLINE_CONFIG_ID;
-    if ((uintptr_t)GetModuleHandleA(nullptr) == 0x400000 && memcmp(id, UBISOFT_CONFIG_ID, sizeof UBISOFT_CONFIG_ID) == 0) {
+    if (game_build_known() && memcmp(id, UBISOFT_CONFIG_ID, sizeof UBISOFT_CONFIG_ID) == 0) {
         replace_config_id_at(id);                // the Steam build
         return;
     }
@@ -325,7 +326,7 @@ static void use_revival_config_id() {
 // result. With Ubisoft's party service gone, Ubisoft Connect hands back a nonzero count with
 // null members, and the game reads member 0 through a null pointer (0x73a7ba). Clear the list
 // first and pass on only a list whose members are all readable; otherwise report no party.
-static const uintptr_t PARTY_MEMBER_LIST_IAT = 0xd289e8;   // uplay_r1_loader!UPLAY_PARTY_GetFullMemberList
+static const uintptr_t PARTY_MEMBER_LIST_IAT = GA(0xd289e8);   // uplay_r1_loader!UPLAY_PARTY_GetFullMemberList
 typedef int(__cdecl* PartyMemberListFn)(DWORD* list);
 static PartyMemberListFn g_party_member_list;
 
@@ -356,7 +357,7 @@ static int __cdecl safe_party_member_list(DWORD* list) {
 static void guard_party_member_list() {
     void** slot = (void**)PARTY_MEMBER_LIST_IAT;
     HMODULE uplay = GetModuleHandleA("uplay_r1_loader.dll");
-    if ((uintptr_t)GetModuleHandleA(nullptr) != 0x400000 || !uplay ||
+    if (!game_build_known() || !uplay ||
         *slot != (void*)GetProcAddress(uplay, "UPLAY_PARTY_GetFullMemberList")) {
         shim_log("unknown game build: multiplayer party fix not applied");
         return;
@@ -371,7 +372,7 @@ static void guard_party_member_list() {
 
 // Test profile only: the game refuses to start twice (it looks for an existing "TrialsPCMainWnd"
 // window, brings it to the front and exits). A test-profile copy doesn't see that window.
-static const uintptr_t FIND_WINDOW_A_IAT = 0xd28684;   // USER32!FindWindowA
+static const uintptr_t FIND_WINDOW_A_IAT = GA(0xd28684);   // USER32!FindWindowA
 typedef HWND(WINAPI* FindWindowAFn)(LPCSTR cls, LPCSTR title);
 static FindWindowAFn g_find_window;
 
@@ -383,7 +384,7 @@ static HWND WINAPI test_profile_find_window(LPCSTR cls, LPCSTR title) {
 // Test profile only: two copies on one PC would both open the game port (UDP 3050) and the Quazal
 // port (3074); Windows lets them share it, and a joining copy then sees the host's address as its
 // own and refuses to connect. A test-profile copy moves to 3060 / 3084 instead.
-static const uintptr_t WSOCK_BIND_IAT = 0xd28778;   // WSOCK32!bind (ordinal 2)
+static const uintptr_t WSOCK_BIND_IAT = GA(0xd28778);   // WSOCK32!bind (ordinal 2)
 typedef int(WINAPI* BindFn)(SOCKET s, const sockaddr* name, int namelen);
 static BindFn g_bind;
 
@@ -412,7 +413,7 @@ static void allow_second_copy() {
         shim_log("test profile: game ports moved to 3060 / 3084");
     }
     void** slot = (void**)FIND_WINDOW_A_IAT;
-    if ((uintptr_t)GetModuleHandleA(nullptr) != 0x400000 ||
+    if (!game_build_known() ||
         *slot != (void*)GetProcAddress(GetModuleHandleA("user32.dll"), "FindWindowA"))
         return;
     DWORD old;
@@ -433,7 +434,7 @@ static DWORD WINAPI build_probe(LPVOID) {
                                   "set transform", "random value"};
     const BYTE* base = (const BYTE*)GetModuleHandleA(nullptr);
     const IMAGE_NT_HEADERS* nt = (const IMAGE_NT_HEADERS*)(base + ((const IMAGE_DOS_HEADER*)base)->e_lfanew);
-    if ((uintptr_t)base == 0x400000 && memcmp((void*)0x66c450, "\x8b\xc1\x80\x78\x1c\x00", 6) == 0)
+    if ((uintptr_t)base == 0x400000 && code_differs((uintptr_t)GA(0x66c450), "\x8b\xc1\x80\x78\x1c\x00", 6) == 0)
         return 0;                                               // the Steam build: nothing to report
     for (int i = 0; i < 60; ++i) {                              // up to 60 s for an unpacking image
         bool code = false;

@@ -21,7 +21,7 @@ void __fastcall particle_spawn_diag(void* self, void*, DWORD a, DWORD b, DWORD c
         g_particle_spawn(self, nullptr, a, b, c, d); return;
     }
     BYTE* emitter = (BYTE*)self;
-    BYTE* system = *(BYTE**)0x1eee670;
+    BYTE* system = *(BYTE**)GA(0x1eee670);
     DWORD live = *(DWORD*)(system + 0x8c), limit = *(DWORD*)(system + 0x88);
     DWORD material = *(DWORD*)(emitter + 0x104);
     unsigned slot = (material ^ (material >> 16)) & 127;
@@ -60,12 +60,12 @@ void __fastcall particle_spawn_diag(void* self, void*, DWORD a, DWORD b, DWORD c
 void start_particle_diagnostic() {
     if (!game_file_exists("trials_revive_particle_diag.txt")) return;
     const BYTE expected[] = {0x55,0x8b,0xec,0x83,0xe4,0xc0};
-    if (memcmp((void*)0x817c20, expected, sizeof expected)) return;
+    if (code_differs((uintptr_t)GA(0x817c20), expected, sizeof expected)) return;
     BYTE* trampoline = (BYTE*)VirtualAlloc(nullptr, 11, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
     if (!trampoline) return;
     memcpy(trampoline, expected, 6); trampoline[6] = 0xe9;
-    *(int*)(trampoline + 7) = (int)(0x817c26 - ((uintptr_t)trampoline + 11));
+    *(int*)(trampoline + 7) = (int)(GA(0x817c26) - ((uintptr_t)trampoline + 11));
     g_particle_spawn = (ParticleSpawnFn)trampoline;
-    if (patch_jmp(0x817c20, expected, sizeof expected, (void*)&particle_spawn_diag))
+    if (patch_jmp(GA(0x817c20), expected, sizeof expected, (void*)&particle_spawn_diag))
         shim_log("particle spawn diagnostic enabled: up to 120 five-second aggregate batches, then stops sampling");
 }

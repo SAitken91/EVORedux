@@ -26,6 +26,33 @@
 //    missing and selecting any DLC track that offers them killed the game in getBikeInfos. They
 //    are now loaded on the first bike lookup (see section 4).
 #include <windows.h>
+#include "game_build.h"
+
+// Game addresses the naked stubs below use, translated for the running build (game_build.h).
+uintptr_t ga_1ee34c4 = GA(0x1ee34c4);
+uintptr_t ga_4eb20b = GA(0x4eb20b);
+uintptr_t ga_4eb28a = GA(0x4eb28a);
+uintptr_t ga_5ff3ef = GA(0x5ff3ef);
+uintptr_t ga_5ff418 = GA(0x5ff418);
+uintptr_t ga_5ff600 = GA(0x5ff600);
+uintptr_t ga_5ff79a = GA(0x5ff79a);
+uintptr_t ga_5ff7c0 = GA(0x5ff7c0);
+uintptr_t ga_5ff9a0 = GA(0x5ff9a0);
+uintptr_t ga_5ffbea = GA(0x5ffbea);
+uintptr_t ga_5ffc10 = GA(0x5ffc10);
+uintptr_t ga_5ffdb0 = GA(0x5ffdb0);
+uintptr_t ga_6018c0 = GA(0x6018c0);
+uintptr_t ga_6178bf = GA(0x6178bf);
+uintptr_t ga_618af8 = GA(0x618af8);
+uintptr_t ga_62373f = GA(0x62373f);
+uintptr_t ga_63355a = GA(0x63355a);
+uintptr_t ga_6f1f47 = GA(0x6f1f47);
+uintptr_t ga_78b692 = GA(0x78b692);
+uintptr_t ga_78b6ac = GA(0x78b6ac);
+uintptr_t ga_78bac4 = GA(0x78bac4);
+uintptr_t ga_80e171 = GA(0x80e171);
+uintptr_t ga_cf5267 = GA(0xcf5267);
+
 #include <intrin.h>
 #include <stdio.h>
 #include <ctype.h>
@@ -44,7 +71,7 @@ static bool game_file_exists(const char* name) {
 
 namespace {
 
-const uintptr_t AREA_COLLECTION_PUSH = 0x528002;
+const uintptr_t AREA_COLLECTION_PUSH = GA(0x528002);
 const unsigned char AREA_COLLECTION_ORIG[5] = {0x68, 0x56, 0xb8, 0x85, 0x26};   // push 2685b856h
 const DWORD BASE_AREA_COLLECTION = 0x2685b856;
 const DWORD PACK1_AREA_COLLECTION = 2919333692u;   // Origin of Pain: areavolumes1.xml collectionID
@@ -73,10 +100,10 @@ __declspec(naked) void area_collection_stub() {
 
 // ---- 2. texture reload ----------------------------------------------------------------------
 
-const uintptr_t TEXTURE_OBJECT_LOAD = 0x7bcce3;
+const uintptr_t TEXTURE_OBJECT_LOAD = GA(0x7bcce3);
 const unsigned char TEXTURE_OBJECT_ORIG[5] = {0x8b, 0x43, 0x3c, 0x85, 0xc0};   // mov eax,[ebx+3Ch]; test eax,eax
-const uintptr_t GAME_TEXT_START = 0x401000, GAME_TEXT_END = 0xd28000;
-const uintptr_t GAME_RDATA_START = 0xd28000, GAME_RDATA_END = 0x1d5c000;
+const uintptr_t GAME_TEXT_START = game_text_start(), GAME_TEXT_END = game_text_end();
+const uintptr_t GAME_RDATA_START = game_rdata_start(), GAME_RDATA_END = game_rdata_end();
 volatile LONG g_bad_texture_objects;
 
 // Returns obj when it looks like a live texture object, otherwise 0 (after logging the first few).
@@ -136,7 +163,7 @@ __declspec(naked) void texture_object_stub() {
 // past the free and the detach (0x78bac4). The atlas frees the object itself after uploading it
 // (0x83f3a0), as it does for every loaded texture.
 
-const uintptr_t MATERIAL_TEXTURE_WAIT = 0x78ba83;
+const uintptr_t MATERIAL_TEXTURE_WAIT = GA(0x78ba83);
 const unsigned char MATERIAL_TEXTURE_ORIG[5] = {0x8b, 0x4e, 0x3c, 0x85, 0xc9};   // mov ecx,[esi+3Ch]; test ecx,ecx
 volatile LONG g_material_skips;
 
@@ -150,7 +177,10 @@ __declspec(naked) void material_texture_wait_stub() {
         ret
     loading:
         lock inc g_material_skips
-        mov dword ptr [esp], 0x78bac4    // past the free and the detach
+        push eax                          // past the free and the detach
+        mov eax, ga_78bac4
+        mov dword ptr [esp + 4], eax
+        pop eax
         ret
     }
 }
@@ -159,7 +189,7 @@ __declspec(naked) void material_texture_wait_stub() {
 // ---- 2c. texture atlas drop diagnostics (temporary) ----------------------------------------
 // TextureAtlas::addTexture (0x83f950) silently drops an image whose resource belongs to a
 // different atlas ([img+0x38] != [atlas+0x30], checked at 0x83fc03). Logs each drop.
-const uintptr_t ATLAS_CHECK = 0x83fc03;
+const uintptr_t ATLAS_CHECK = GA(0x83fc03);
 const unsigned char ATLAS_CHECK_ORIG[6] = {0x8b, 0x46, 0x38, 0x3b, 0x45, 0x30};
 volatile LONG g_atlas_drops;
 
@@ -204,9 +234,9 @@ __declspec(naked) void atlas_check_stub() {
 
 // ---- 3. event menu leaderboard lookup -------------------------------------------------------
 
-const uintptr_t LB_LOOKUP_CALL = 0x6f4455;
-const uintptr_t LB_LOOKUP = 0x661890;           // TrackInfoManager::getGameModeSupportForLB
-const DWORD GAME_GLOBAL = 0x1ee3548;            // game object; [+0x4c] = game-mode support table
+const uintptr_t LB_LOOKUP_CALL = GA(0x6f4455);
+const uintptr_t LB_LOOKUP = GA(0x661890);           // TrackInfoManager::getGameModeSupportForLB
+const DWORD GAME_GLOBAL = GA(0x1ee3548);            // game object; [+0x4c] = game-mode support table
 typedef void*(__fastcall* LbLookupFn)(void* mgr, void* edx, DWORD lb, DWORD flag);   // thiscall, ret 8
 volatile LONG g_lb_fallbacks;
 
@@ -247,15 +277,15 @@ void* __fastcall lb_lookup_checked(void* mgr, void* edx, DWORD lb, DWORD flag) {
 // hash-table hang was subsequently traced to a missing DLC selector during track238 loading;
 // see section 5 and hang_analysis/SELECTOR_FINDINGS.md.
 
-const uintptr_t PACK_TRACKS_CALL = 0x65428c;
-const uintptr_t PACK_TRACKS_LOAD = 0x660360;    // TrackInfoManager: (pack, "pack<N>/tracks.xml")
-const uintptr_t BIKES_LOAD = 0x6532e0;          // bike table: (0, "pack0/bikes.xml"), ret 8
-const uintptr_t ITEMS_LOAD = 0x657910;          // item table [game+0x6c]: (0, "pack0/items.xml"), ret 8
-const uintptr_t BIKE_GFX = 0x656aa0;            // item table: bike id -> bike model gfx id (ret 4)
-const uintptr_t BIKE_LOOKUP = 0x46d670;         // bike table hash lookup: (&id, &slot) -> bucket
-const uintptr_t STRING_FROM_CSTR = 0x40c200;    // engine string ctor (thiscall, ret 4)
-const uintptr_t ENGINE_FREE = 0x436ab0;         // frees an engine string's heap text (flag bit 0 at +0xc)
-const uintptr_t GET_BIKE_INFOS = 0x6f1f40;      // UI binding; first bytes: push -1; push 0CF5267h
+const uintptr_t PACK_TRACKS_CALL = GA(0x65428c);
+const uintptr_t PACK_TRACKS_LOAD = GA(0x660360);    // TrackInfoManager: (pack, "pack<N>/tracks.xml")
+const uintptr_t BIKES_LOAD = GA(0x6532e0);          // bike table: (0, "pack0/bikes.xml"), ret 8
+const uintptr_t ITEMS_LOAD = GA(0x657910);          // item table [game+0x6c]: (0, "pack0/items.xml"), ret 8
+const uintptr_t BIKE_GFX = GA(0x656aa0);            // item table: bike id -> bike model gfx id (ret 4)
+const uintptr_t BIKE_LOOKUP = GA(0x46d670);         // bike table hash lookup: (&id, &slot) -> bucket
+const uintptr_t STRING_FROM_CSTR = GA(0x40c200);    // engine string ctor (thiscall, ret 4)
+const uintptr_t ENGINE_FREE = GA(0x436ab0);         // frees an engine string's heap text (flag bit 0 at +0xc)
+const uintptr_t GET_BIKE_INFOS = GA(0x6f1f40);      // UI binding; first bytes: push -1; push 0CF5267h
 const unsigned char GET_BIKE_INFOS_ORIG[7] = {0x6a, 0xff, 0x68, 0x67, 0x52, 0xcf, 0x00};
 typedef void(__fastcall* PackTracksFn)(void* mgr, void* edx, DWORD pack, void* path);
 typedef DWORD(__fastcall* BikeGfxFn)(void* items, void* edx, DWORD bike);
@@ -339,14 +369,14 @@ __declspec(naked) void get_bike_infos_stub() {
         call load_pending_bikes
         popad
         push -1
-        push 0xcf5267
-        push 0x6f1f47
+        push ga_cf5267
+        push ga_6f1f47
         ret
     }
 }
 
 bool patch_jmp(uintptr_t at, const unsigned char* expected, size_t len, void* target) {
-    if (memcmp((void*)at, expected, len) != 0) return false;
+    if (code_differs((uintptr_t)at, expected, len) != 0) return false;
     DWORD old;
     if (!VirtualProtect((void*)at, len, PAGE_EXECUTE_READWRITE, &old)) return false;
     unsigned char* p = (unsigned char*)at;
@@ -359,7 +389,7 @@ bool patch_jmp(uintptr_t at, const unsigned char* expected, size_t len, void* ta
 }
 
 bool patch_call(uintptr_t at, const unsigned char* expected, size_t len, void* target) {
-    if (memcmp((void*)at, expected, len) != 0) return false;
+    if (code_differs((uintptr_t)at, expected, len) != 0) return false;
     DWORD old;
     if (!VirtualProtect((void*)at, len, PAGE_EXECUTE_READWRITE, &old)) return false;
     unsigned char* p = (unsigned char*)at;
@@ -397,11 +427,11 @@ float __fastcall selector_value(void* self, void*) {
 }
 
 void __fastcall selector_reset(void* self, void*) {
-    ((SourceResetFn)0x62df70)(self, nullptr);
+    ((SourceResetFn)GA(0x62df70))(self, nullptr);
 }
 
 int __fastcall selector_read(void* self, void*, void* reader, void* objects, void* selected, int version) {
-    int result = ((SourceReadFn)0x6236c0)(self, nullptr, reader, objects, selected, version);
+    int result = ((SourceReadFn)GA(0x6236c0))(self, nullptr, reader, objects, selected, version);
     if (result) return result;
     float* values = (float*)((BYTE*)self + 0x3c);
     for (int i = 0; i < 3; ++i)
@@ -440,14 +470,14 @@ __declspec(thread) int g_active_selector_count;
 float __fastcall selector_evaluate(void* self, void*, void* visited, int depth) {
     BYTE* source = (BYTE*)self;
     DWORD tick = *(DWORD*)(*(BYTE**)(*(BYTE**)GAME_GLOBAL + 0x30) + 0x14);
-    if (*(BYTE*)0x1eec404 && *(DWORD*)(source + 0x30) == tick) return *(float*)(source + 0x28);
+    if (*(BYTE*)GA(0x1eec404) && *(DWORD*)(source + 0x30) == tick) return *(float*)(source + 0x28);
     if (depth > 500 || g_active_selector_count >= 500) {
-        *(BYTE*)0x1eec406 = 1;
+        *(BYTE*)GA(0x1eec406) = 1;
         return *(float*)(source + 0x28);
     }
     for (int i = 0; i < g_active_selector_count; ++i) {
         if (g_active_selectors[i] == self) {
-            *(BYTE*)0x1eec407 = 1;
+            *(BYTE*)GA(0x1eec407) = 1;
             return *(float*)(source + 0x28);
         }
     }
@@ -457,10 +487,10 @@ float __fastcall selector_evaluate(void* self, void*, void* visited, int depth) 
         void* input = selector_input(*(void**)(source + 4), SELECTOR_PROPERTY + i);
         if (input) {
             float value = ((SourceEvalFn)(*(DWORD**)input)[6])(input, nullptr, visited, depth + 1);
-            if (!*(BYTE*)0x1eec405) values[i] = value;
+            if (!*(BYTE*)GA(0x1eec405)) values[i] = value;
         }
     }
-    if (!*(BYTE*)0x1eec405) *(float*)(source + 0x28) = selector_value(self, nullptr);
+    if (!*(BYTE*)GA(0x1eec405)) *(float*)(source + 0x28) = selector_value(self, nullptr);
     *(DWORD*)(source + 0x30) = tick;
     --g_active_selector_count;
     return *(float*)(source + 0x28);
@@ -471,9 +501,9 @@ void __fastcall selector_copy(void* self, void*, void* other) {
 }
 
 extern "C" void* __cdecl create_selector(void* owner) {
-    void* memory = ((void*(__cdecl*)(size_t))0x436a40)(0x48);
+    void* memory = ((void*(__cdecl*)(size_t))GA(0x436a40))(0x48);
     if (!memory) return nullptr;
-    ((SourceCtorFn)0x62e050)(memory, nullptr, owner);
+    ((SourceCtorFn)GA(0x62e050))(memory, nullptr, owner);
     *(DWORD**)memory = g_selector_vtable;
     shim_log("dlc fix: created missing selector data source");
     return memory;
@@ -492,10 +522,10 @@ __declspec(naked) void selector_factory_stub() {
         push ebp
         call create_selector
         add esp, 4
-        push 0x5ffc10
+        push ga_5ffc10
         ret
     native_noperation:
-        push 0x5ffbea
+        push ga_5ffbea
         ret
     other:
         push ebp
@@ -504,10 +534,10 @@ __declspec(naked) void selector_factory_stub() {
         add esp, 8
         test eax, eax
         jz unknown
-        push 0x5ffc10
+        push ga_5ffc10
         ret
     unknown:
-        push 0x5ffdb0
+        push ga_5ffdb0
         ret
     }
 }
@@ -521,7 +551,7 @@ extern "C" DWORD __cdecl selector_property(void* target, DWORD serialized) {
     // Connections into other DLC nodes use property ids the PC table doesn't have; reading past
     // the table would give a random native property. They target inert placeholders anyway.
     if (serialized >= PC_PROPERTY_IDS) return DLC_PROPERTY_BASE + serialized;
-    return (DWORD)(int)((short*)0x1eebec8)[serialized];
+    return (DWORD)(int)((short*)GA(0x1eebec8))[serialized];
 }
 
 // Original instruction translates serialized IDs through the base game's shorter table.
@@ -536,7 +566,7 @@ __declspec(naked) void selector_property_stub() {
         mov ecx, eax
         pop edx
         pop eax
-        push 0x62373f
+        push ga_62373f
         ret
     }
 }
@@ -544,18 +574,18 @@ __declspec(naked) void selector_property_stub() {
 void start_selector_fix() {
     const BYTE factory[] = {0x81,0x78,0x40,0x45,0xbf,0x61,0xe6,0x0f,0x85,0xc6,0x01,0x00,0x00};
     const BYTE property[] = {0x0f,0xbf,0x0c,0x45,0xc8,0xbe,0xee,0x01};
-    if (memcmp((void*)0x5ffbdd,factory,sizeof factory) || memcmp((void*)0x623737,property,sizeof property)) {
+    if (code_differs((uintptr_t)GA(0x5ffbdd),factory,sizeof factory) || code_differs((uintptr_t)GA(0x623737),property,sizeof property)) {
         shim_log("dlc fix: selector patch skipped (unexpected code)");
         return;
     }
-    memcpy(g_selector_vtable,(void*)0x150a61c,sizeof g_selector_vtable);
+    memcpy(g_selector_vtable,(void*)GA(0x150a61c),sizeof g_selector_vtable);
     g_selector_vtable[1] = (DWORD)&selector_reset;
     g_selector_vtable[4] = (DWORD)&selector_value;
     g_selector_vtable[6] = (DWORD)&selector_evaluate;
     g_selector_vtable[11] = (DWORD)&selector_copy;
     g_selector_vtable[12] = (DWORD)&selector_read;
-    if (patch_jmp(0x623737,property,sizeof property,(void*)&selector_property_stub) &&
-        patch_jmp(0x5ffbdd,factory,sizeof factory,(void*)&selector_factory_stub))
+    if (patch_jmp(GA(0x623737),property,sizeof property,(void*)&selector_property_stub) &&
+        patch_jmp(GA(0x5ffbdd),factory,sizeof factory,(void*)&selector_factory_stub))
         shim_log("dlc fix: selector creation, reading and input evaluation enabled");
 }
 
@@ -585,14 +615,14 @@ int __fastcall trace_trigger_load(void* self, void*, void* reader, void* objects
 
 void start_trigger_trace() {
     const unsigned char code[5] = {0x83, 0xec, 0x0c, 0x55, 0x56};
-    if (memcmp((void*)0x6236c0, code, 5)) return;
+    if (code_differs((uintptr_t)GA(0x6236c0), code, 5)) return;
     BYTE* trampoline = (BYTE*)VirtualAlloc(nullptr, 10, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
     if (!trampoline) return;
     memcpy(trampoline, code, 5);
     trampoline[5] = 0xe9;
-    *(int*)(trampoline + 6) = (int)(0x6236c5 - ((uintptr_t)trampoline + 10));
+    *(int*)(trampoline + 6) = (int)(GA(0x6236c5) - ((uintptr_t)trampoline + 10));
     g_trigger_load_original = trampoline;
-    if (patch_jmp(0x6236c0, code, 5, (void*)&trace_trigger_load))
+    if (patch_jmp(GA(0x6236c0), code, 5, (void*)&trace_trigger_load))
         shim_log("trigger trace: enabled serialized connection diagnostics");
 }
 
@@ -629,7 +659,7 @@ bool load_dlc_retargets(void* stream, BYTE* track, DWORD size) {
         if (memcmp(prefix, shipped, sizeof prefix)) return false;
         DlcRetarget& r = g_retargets[g_retarget_count++];
         r.owner = owners[k];
-        for (int j = 0; j < 5; ++j) r.targets[j] = ((RefRead)0x4d06b0)(stream, objects, 0);
+        for (int j = 0; j < 5; ++j) r.targets[j] = ((RefRead)GA(0x4d06b0))(stream, objects, 0);
     }
     DWORD end = ((DWORD(__fastcall*)(void*, void*))(*(DWORD**)stream)[0x4c / 4])(stream, nullptr);
     if (end - start != size) { g_retarget_count = 0; return false; }
@@ -652,7 +682,7 @@ extern "C" void* __cdecl resolve_dlc_retarget(void* object) {
         if (!record) return nullptr;
         void* input = selector_input(object, DLC_PROPERTY_BASE + 552);
         // Data sources are evaluated on demand: refresh the input before reading its value.
-        if (input) ((void(__fastcall*)(void*, void*, int))0x621ab0)(input, nullptr, 0);
+        if (input) ((void(__fastcall*)(void*, void*, int))GA(0x621ab0))(input, nullptr, 0);
         float index = input ? *(float*)((BYTE*)input + 0x28) : 0.0f;
         if (!(index > -1e6f && index < 1e6f)) { nt_trace_retarget(object, index, nullptr); return nullptr; } // NaN/huge
         // The serialized initial index is zero-based, but its wired property is
@@ -682,17 +712,17 @@ __declspec(naked) void retarget_transform_stub() {
         test ebx, ebx
         jz empty_target
         xor esi, esi
-        push 0x6178bf
+        push ga_6178bf
         ret
     empty_target:
-        push 0x618af8
+        push ga_618af8
         ret
     }
 }
 
 void start_retarget_runtime() {
     const BYTE original[5] = {0x8b,0x59,0x08,0x33,0xf6};
-    g_retarget_hook_enabled = patch_jmp(0x6178ba, original, sizeof original, (void*)&retarget_transform_stub);
+    g_retarget_hook_enabled = patch_jmp(GA(0x6178ba), original, sizeof original, (void*)&retarget_transform_stub);
     shim_log(g_retarget_hook_enabled ? "dlc runtime: transform retarget resolution enabled"
                                     : "dlc runtime: retarget hook not installed (unexpected code)");
 }
@@ -704,7 +734,7 @@ void start_retarget_runtime() {
 // (emitters, 4 tracks) and POR3 (portals, 12 tracks). These three are now read past and logged,
 // so the tracks load without those features; any other unknown id still fails as before.
 
-const uintptr_t UNKNOWN_CHUNK = 0x4eb285;        // mov eax,[1EE34C4h] (logger) on the failure path
+const uintptr_t UNKNOWN_CHUNK = GA(0x4eb285);        // mov eax,[1EE34C4h] (logger) on the failure path
 const unsigned char UNKNOWN_CHUNK_ORIG[5] = {0xa1, 0xc4, 0x34, 0xee, 0x01};
 typedef int(__fastcall* StreamReadFn)(void* stream, void* edx, void* buf, int len);   // vtable +0x34
 
@@ -743,11 +773,12 @@ __declspec(naked) void unknown_chunk_stub() {
         test eax, eax
         jz failed
         xor eax, eax             // as if the chunk's handler succeeded
-        push 0x4eb20b
+        push ga_4eb20b
         ret
     failed:
-        mov eax, dword ptr ds:[0x1ee34c4]
-        push 0x4eb28a
+        mov eax, ga_1ee34c4
+        mov eax, dword ptr [eax]
+        push ga_4eb28a
         ret
     }
 }
@@ -761,7 +792,7 @@ __declspec(naked) void unknown_chunk_stub() {
 // returned instead (the stream is already at the chunk end): the track loads, but trigger logic
 // after the first misread record may be wrong. PC tracks never take this path.
 
-const uintptr_t TRI_MISMATCH = 0x4b7ced;         // mov eax,401h after the seek to the chunk end
+const uintptr_t TRI_MISMATCH = GA(0x4b7ced);         // mov eax,401h after the seek to the chunk end
 const unsigned char TRI_MISMATCH_ORIG[5] = {0xb8, 0x01, 0x04, 0x00, 0x00};
 volatile LONG g_tri_mismatches;
 
@@ -803,7 +834,7 @@ int __fastcall trace_trigger_record(void* self, DWORD slot, void* reader, void* 
     // reads the common fields only. Leaving these bytes behind misaligns every
     // subsequent event (Forge failed at EventFire with a bogus input count 257).
     // Keep common PC behavior; the two DLC-only flag semantics remain unmapped.
-    if (!result && slot == 0x38 && vt == 0x141d39c && version == 47 &&
+    if (!result && slot == 0x38 && vt == GA(0x141d39c) && version == 47 &&
         (g_texture_world == 1 || g_texture_world == 2) && end > start) {
         BYTE flags[2] = {};
         StreamReadFn read = *(StreamReadFn*)(*(BYTE**)reader + 0x34);
@@ -815,7 +846,7 @@ int __fastcall trace_trigger_record(void* self, DWORD slot, void* reader, void* 
     // Likewise the DLC's FilterImpulseCounter records carry one more byte than the PC reads
     // (Forge 419: each counter ends `.. 4b c0 01`; the PC stopped before the 01, so the next
     // FilterImpulseDelay read 3 bytes and failed with 1025 at 212220). Flag semantics unmapped.
-    if (!result && slot == 0x30 && vt == 0x1589a1c && version == 47 &&
+    if (!result && slot == 0x30 && vt == GA(0x1589a1c) && version == 47 &&
         (g_texture_world == 1 || g_texture_world == 2) && end > start) {
         BYTE flag = 0;
         StreamReadFn read = *(StreamReadFn*)(*(BYTE**)reader + 0x34);
@@ -827,7 +858,7 @@ int __fastcall trace_trigger_record(void* self, DWORD slot, void* reader, void* 
     sprintf_s(line, "TRI record end: slot=%lx vtable=%08lx id=%lu pos=%lu consumed=%lu result=%d",
               slot, vt, ((DWORD*)self)[1], end, end-start, result);
     shim_log(line);
-    if (!result && slot == 0x28 && vt == 0x12b1f54) portal_register_hit(self);
+    if (!result && slot == 0x28 && vt == GA(0x12b1f54)) portal_register_hit(self);
     return result;
 }
 
@@ -876,7 +907,7 @@ __declspec(naked) void trigger_failure_stub() {
         pop ebp
         pop ebx
         add esp, 0xc
-        push 0x6018c0
+        push ga_6018c0
         ret
     }
 }
@@ -922,7 +953,7 @@ __declspec(naked) void dlc_object_index_stub() {
         mov [esp + 0x24], eax
         popad
         popfd
-        push 0x80e171
+        push ga_80e171
         ret
     }
 }
@@ -1050,7 +1081,7 @@ int __fastcall dlc_node_read(void* self, void*, void* stream, void* objects, voi
     if (node.kind == 'f') {
         // The native splitter base owns the five outgoing impulse references. Using its
         // reader also registers reverse links and lets native destruction unlink them.
-        int result = ((SourceReadFn)0x634040)(self, nullptr, stream, objects, selected, version);
+        int result = ((SourceReadFn)GA(0x634040))(self, nullptr, stream, objects, selected, version);
         if (result) return result;
         float* values = (float*)((BYTE*)self + 0x78);
         for (int k = 0; k < 5; ++k)
@@ -1071,14 +1102,14 @@ int __fastcall dlc_node_read(void* self, void*, void* stream, void* objects, voi
 // chained 0..3, 4..7, 8..9 switches). Native impulse dispatch consumes this bit mask.
 void nt_trace_switch(void* owner, float comparison, bool wired, unsigned char mask);  // dlc_nt_trace.inl
 unsigned char __fastcall dlc_switch_activate(void* self, void*) {
-    ((unsigned char(__fastcall*)(void*, void*))0x633f50)(self, nullptr);
+    ((unsigned char(__fastcall*)(void*, void*))GA(0x633f50))(self, nullptr);
     if (!*((BYTE*)self + 0x70)) return 0x1f; // native disabled-filter bypass
     const float* values = (const float*)((BYTE*)self + 0x78);
     void* owner = ((void**)self)[1];
     void* input = selector_input(owner, DLC_PROPERTY_BASE + 508);
     // The 360 switch refreshes its comparison from the input before matching (TU3 0x825eccf0);
     // PC data sources are evaluated on demand, so evaluate the input first.
-    if (input) ((void(__fastcall*)(void*, void*, int))0x621ab0)(input, nullptr, 0);
+    if (input) ((void(__fastcall*)(void*, void*, int))GA(0x621ab0))(input, nullptr, 0);
     float comparison = input ? *(float*)((BYTE*)input + 0x28) : values[0];
     unsigned char mask = 0;                      // every matching case fires, as on the 360
     for (DWORD k = 0; k < 4; ++k)
@@ -1089,7 +1120,7 @@ unsigned char __fastcall dlc_switch_activate(void* self, void*) {
 }
 
 void __fastcall dlc_switch_copy(void* self, void*, void* other) {
-    ((void(__fastcall*)(void*, void*, void*))0x633f20)(self, nullptr, other);
+    ((void(__fastcall*)(void*, void*, void*))GA(0x633f20))(self, nullptr, other);
     if (other) memcpy((BYTE*)self + 0x78, (BYTE*)other + 0x78, 5 * sizeof(float));
 }
 
@@ -1097,16 +1128,16 @@ void __fastcall dlc_switch_copy(void* self, void*, void* other) {
 // then the cloned vtable whose read slot consumes the DLC layout.
 struct NodeBase { DWORD size; uintptr_t ctor; uintptr_t vtable; int slots; int read_slot; };
 const NodeBase NODE_BASE[3] = {
-    {0x48, 0x62e050, 0x150a61c, 16, 0x30 / 4},   // 'd' DataSourceOperation
-    {0xb4, 0x61de50, 0x146618c, 18, 0x38 / 4},   // 'e' EventState (no targets -> no effect)
-    {0x8c, 0x633e90, 0x15adf38, 13, 0x30 / 4},   // 'f' FilterImpulseSplitter (no outputs)
+    {0x48, GA(0x62e050), GA(0x150a61c), 16, 0x30 / 4},   // 'd' DataSourceOperation
+    {0xb4, GA(0x61de50), GA(0x146618c), 18, 0x38 / 4},   // 'e' EventState (no targets -> no effect)
+    {0x8c, GA(0x633e90), GA(0x15adf38), 13, 0x30 / 4},   // 'f' FilterImpulseSplitter (no outputs)
 };
 
 const NodeBase& node_base(char kind) { return NODE_BASE[kind == 'd' ? 0 : kind == 'e' ? 1 : 2]; }
-const NodeBase VECTOR_CURVE_BASE = {0x60, 0x625690, 0x14af43c, 16, 12};
+const NodeBase VECTOR_CURVE_BASE = {0x60, GA(0x625690), GA(0x14af43c), 16, 12};
 
 void init_dlc_nodes() {
-    memcpy(g_vector_adapter_vtable, (void*)0x150a61c, sizeof g_vector_adapter_vtable);
+    memcpy(g_vector_adapter_vtable, (void*)GA(0x150a61c), sizeof g_vector_adapter_vtable);
     g_vector_adapter_vtable[4] = (DWORD)&vector_adapter_value;
     g_vector_adapter_vtable[6] = (DWORD)&vector_adapter_eval;
     for (int i = 0; i < DLC_NODE_COUNT; ++i) {
@@ -1134,7 +1165,7 @@ extern "C" void* __cdecl create_dlc_node(DWORD model, void* owner, char kind) {
     if (!node || node->kind != kind) return nullptr;
     int i = (int)(node - DLC_NODES);
     const NodeBase& b = i == 2 && g_vector_runtime_enabled ? VECTOR_CURVE_BASE : node_base(kind);
-    void* memory = ((void*(__cdecl*)(size_t))0x436a40)(b.size);
+    void* memory = ((void*(__cdecl*)(size_t))GA(0x436a40))(b.size);
     if (!memory) return nullptr;
     memset(memory, 0, b.size);
     ((TriggerCtorFn)b.ctor)(memory, nullptr, owner);
@@ -1159,7 +1190,7 @@ __declspec(naked) void dlc_event_factory_stub() {
     __asm {
         cmp eax, 0xa9b7eb2f
         jne not_game
-        push 0x5ff3ef
+        push ga_5ff3ef
         ret
     not_game:
         push 'e'
@@ -1169,10 +1200,10 @@ __declspec(naked) void dlc_event_factory_stub() {
         add esp, 12
         test eax, eax
         jz unknown
-        push 0x5ff418
+        push ga_5ff418
         ret
     unknown:
-        push 0x5ff600
+        push ga_5ff600
         ret
     }
 }
@@ -1183,7 +1214,7 @@ __declspec(naked) void dlc_filter_factory_stub() {
     __asm {
         cmp dword ptr [edx + 0x40], 0x84671807
         jne not_splitter
-        push 0x5ff79a
+        push ga_5ff79a
         ret
     not_splitter:
         push 'f'
@@ -1193,10 +1224,10 @@ __declspec(naked) void dlc_filter_factory_stub() {
         add esp, 12
         test eax, eax
         jz unknown
-        push 0x5ff7c0
+        push ga_5ff7c0
         ret
     unknown:
-        push 0x5ff9a0
+        push ga_5ff9a0
         ret
     }
 }
@@ -1207,8 +1238,8 @@ const unsigned char FILTER_FACTORY_TAIL[13] = {0x81, 0x7a, 0x40, 0x07, 0x18, 0x6
 void start_dlc_nodes() {
     g_vector_runtime_enabled = game_file_exists("trials_revive_vector_runtime.txt");
     init_dlc_nodes();
-    shim_log(patch_jmp(0x5ff3e4, EVENT_FACTORY_TAIL, sizeof EVENT_FACTORY_TAIL, (void*)&dlc_event_factory_stub) &&
-             patch_jmp(0x5ff78d, FILTER_FACTORY_TAIL, sizeof FILTER_FACTORY_TAIL, (void*)&dlc_filter_factory_stub)
+    shim_log(patch_jmp(GA(0x5ff3e4), EVENT_FACTORY_TAIL, sizeof EVENT_FACTORY_TAIL, (void*)&dlc_event_factory_stub) &&
+             patch_jmp(GA(0x5ff78d), FILTER_FACTORY_TAIL, sizeof FILTER_FACTORY_TAIL, (void*)&dlc_filter_factory_stub)
                  ? (g_vector_runtime_enabled ? "dlc fix: switch routing and staged vector runtime enabled"
                                             : "dlc fix: switch routing enabled; staged vector runtime disabled")
                  : "dlc fix: DLC node placeholders skipped (unexpected code)");
@@ -1227,18 +1258,18 @@ bool dlc_present() {
 }  // namespace
 
 void start_dlc_fixes() {
-    if ((uintptr_t)GetModuleHandleA(nullptr) != 0x400000 || !dlc_present()) return;
+    if (!game_build_known() || !dlc_present()) return;
     start_trigger_trace();
     const unsigned char pass28[5] = {0x8b,0x11,0x8b,0x42,0x28};
     const unsigned char pass38[5] = {0x8b,0x11,0x8b,0x42,0x38};
     const unsigned char pass30[5] = {0x8b,0x11,0x8b,0x42,0x30};
-    if (patch_call(0x6017d7, pass28, 5, (void*)&trace_pass28) &&
-        patch_call(0x601818, pass38, 5, (void*)&trace_pass38) &&
-        patch_call(0x601859, pass30, 5, (void*)&trace_pass30) &&
-        patch_call(0x601899, pass30, 5, (void*)&trace_pass30))
+    if (patch_call(GA(0x6017d7), pass28, 5, (void*)&trace_pass28) &&
+        patch_call(GA(0x601818), pass38, 5, (void*)&trace_pass38) &&
+        patch_call(GA(0x601859), pass30, 5, (void*)&trace_pass30) &&
+        patch_call(GA(0x601899), pass30, 5, (void*)&trace_pass30))
         shim_log("TRI all-pass record diagnostics enabled");
     const unsigned char trigger_return[7] = {0x5f, 0x5e, 0x5d, 0x5b, 0x83, 0xc4, 0x0c};
-    shim_log(patch_jmp(0x6018b9, trigger_return, 7, (void*)&trigger_failure_stub)
+    shim_log(patch_jmp(GA(0x6018b9), trigger_return, 7, (void*)&trigger_failure_stub)
                  ? "trigger failure diagnostics enabled"
                  : "trigger failure diagnostics skipped (unexpected code)");
     start_selector_fix();
@@ -1250,7 +1281,7 @@ void start_dlc_fixes() {
     if (game_file_exists("trials_revive_no_object_index.txt"))
         shim_log("dlc texture fix: per-world object index DISABLED by trials_revive_no_object_index.txt (test)");
     else
-    shim_log(patch_call(0x80e16c, object_index_push, 5, (void*)&dlc_object_index_stub)
+    shim_log(patch_call(GA(0x80e16c), object_index_push, 5, (void*)&dlc_object_index_stub)
                  ? "dlc texture fix: per-world object index enabled"
                  : "dlc texture fix: index hook skipped (unexpected code)");
     shim_log(patch_call(AREA_COLLECTION_PUSH, AREA_COLLECTION_ORIG, 5, (void*)&area_collection_stub)
@@ -1273,7 +1304,7 @@ void start_dlc_fixes() {
     unsigned char tracks_call[5] = {0xE8};
     *(int*)(tracks_call + 1) = (int)(PACK_TRACKS_LOAD - (PACK_TRACKS_CALL + 5));
     InitializeCriticalSection(&g_bikes_lock);
-    if (memcmp((void*)GET_BIKE_INFOS, GET_BIKE_INFOS_ORIG, sizeof GET_BIKE_INFOS_ORIG) == 0 &&
+    if (code_differs((uintptr_t)GET_BIKE_INFOS, GET_BIKE_INFOS_ORIG, sizeof GET_BIKE_INFOS_ORIG) == 0 &&
         patch_call(PACK_TRACKS_CALL, tracks_call, 5, (void*)&pack_tracks_and_note_bikes) &&
         patch_jmp(GET_BIKE_INFOS, GET_BIKE_INFOS_ORIG, sizeof GET_BIKE_INFOS_ORIG, (void*)&get_bike_infos_stub))
         shim_log("dlc fix: DLC packs' bikes.xml load on first bike lookup");

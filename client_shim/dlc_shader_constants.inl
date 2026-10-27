@@ -40,7 +40,7 @@ void start_shader_constants_fix() {
         return;
     }
     const unsigned char entry[5] = {0x51, 0x8b, 0x44, 0x24, 0x10};
-    shim_log(patch_jmp(0x84d750, entry, sizeof entry, (void*)&shader_constants_upload)
+    shim_log(patch_jmp(GA(0x84d750), entry, sizeof entry, (void*)&shader_constants_upload)
                  ? "shader constant fix: write-only constant upload enabled"
                  : "shader constant fix: skipped (unexpected code)");
 }

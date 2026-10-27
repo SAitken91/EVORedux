@@ -27,7 +27,7 @@ void nt_log(const char* line) {
 }
 
 float nt_input_value(void* owner, DWORD serialized, bool* found) {
-    DWORD property = (DWORD)(int)((short*)0x1eebec8)[serialized];
+    DWORD property = (DWORD)(int)((short*)GA(0x1eebec8))[serialized];
     void* input = selector_input(owner, property);
     *found = input != nullptr;
     return input ? *(float*)((BYTE*)input + 0x28) : 0.0f;
@@ -77,7 +77,7 @@ void nt_trace_callers(void* self, const DWORD* stack) {
     int own = nt_object_index(((void**)self)[1]);
     if (own != 1078 && own != 2874 && own != 1081 && own != 3670) return;
     if (!nt_trace_line()) return;
-    BYTE* track = *(BYTE**)(*(BYTE**)0x1ee3548 + 0x30);
+    BYTE* track = *(BYTE**)(*(BYTE**)GA(0x1ee3548) + 0x30);
     char line[1000];
     int n = sprintf_s(line, "fired %d tick=%lu chain:", own, track ? *(DWORD*)(track + 0x14) : 0);
     int last = -2;
@@ -96,7 +96,7 @@ StateExecFn g_state_exec;
 void portal_state_event(void* self);
 unsigned char __fastcall nt_state_exec(void* self, void*) {
     if (g_nt_trace && nt_trace_line()) {
-        BYTE* track = *(BYTE**)(*(BYTE**)0x1ee3548 + 0x30);
+        BYTE* track = *(BYTE**)(*(BYTE**)GA(0x1ee3548) + 0x30);
         char line[200];
         sprintf_s(line, "state %d enabled=%d mode=%lu tick=%lu", nt_object_index(((void**)self)[1]),
             *((BYTE*)self + 0x70), *(DWORD*)((BYTE*)self + 0xb0), track ? *(DWORD*)(track + 0x14) : 0);
@@ -123,7 +123,7 @@ unsigned char __fastcall nt_state_exec(void* self, void*) {
                 int w = sprintf_s(where, "run-over context:");
                 if (track && *(DWORD*)(track + 0x1cc) && *(BYTE**)(track + 0x1bc)) {
                     float b[3];
-                    ((float*(__fastcall*)(void*, void*, float*))0x45ad50)(*(BYTE**)(track + 0x1bc), nullptr, b);
+                    ((float*(__fastcall*)(void*, void*, float*))GA(0x45ad50))(*(BYTE**)(track + 0x1bc), nullptr, b);
                     w += sprintf_s(where + w, sizeof where - w, " bike (%.1f,%.1f,%.1f)", b[0], b[1], b[2]);
                 }
                 const unsigned vols[3] = {309, 3672, 3673};
@@ -148,7 +148,7 @@ void nt_trace_code_addresses(const DWORD* stack) {
     char line[700];
     int n = sprintf_s(line, "park stack code:");
     for (int k = 0; k < 0x200 && stack + k < top && n > 0 && n < 640; ++k)
-        if (stack[k] >= 0x5f0000 && stack[k] < 0x640000) n += sprintf_s(line + n, sizeof line - n, " %lx", stack[k]);
+        if (stack[k] >= GA(0x5f0000) && stack[k] < GA(0x640000)) n += sprintf_s(line + n, sizeof line - n, " %lx", stack[k]);
     nt_log(line);
 }
 
@@ -160,7 +160,7 @@ unsigned char __fastcall nt_transform_exec(void* self, void*) {
     static DWORD placed_tick = 0xffffffff;      // tick of the last 2874 place
     int own_index = g_nt_nopark ? nt_object_index(((void**)self)[1]) : -1;
     if (own_index == 1078 || own_index == 2874) {
-        BYTE* track = *(BYTE**)(*(BYTE**)0x1ee3548 + 0x30);
+        BYTE* track = *(BYTE**)(*(BYTE**)GA(0x1ee3548) + 0x30);
         DWORD tick = track ? *(DWORD*)(track + 0x14) : 0;
         if (own_index == 2874) placed_tick = tick;
         else if (placed_tick != 0xffffffff && tick > placed_tick) {
@@ -209,13 +209,13 @@ void nt_trace_vector(VectorState* s, const char* what) {
 void start_portal_state_hook() {
     if (g_state_exec) return;
     const BYTE expected[] = {0xb8, 0x0c, 0x40, 0x00, 0x00};
-    if (memcmp((void*)0x61d720, expected, 5)) return;
+    if (code_differs((uintptr_t)GA(0x61d720), expected, 5)) return;
     BYTE* st = (BYTE*)VirtualAlloc(nullptr, 10, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
     if (!st) return;
     memcpy(st, expected, 5); st[5] = 0xe9;
-    *(int*)(st + 6) = (int)(0x61d725 - ((uintptr_t)st + 10));
+    *(int*)(st + 6) = (int)(GA(0x61d725) - ((uintptr_t)st + 10));
     g_state_exec = (StateExecFn)st;
-    if (patch_jmp(0x61d720, expected, 5, (void*)&nt_state_exec)) {
+    if (patch_jmp(GA(0x61d720), expected, 5, (void*)&nt_state_exec)) {
         shim_log("dlc runtime: portal EventState enable/disable/toggle enabled");
     } else g_state_exec = nullptr;
 }
@@ -223,16 +223,16 @@ void start_portal_state_hook() {
 void start_nt_trace() {
     if (!game_file_exists("trials_revive_nt_trace.txt")) return;
     const BYTE expected[] = {0x55,0x8b,0xec,0x83,0xe4,0xf0};      // EventObjectTransform slot 3
-    if (memcmp((void*)0x617810, expected, sizeof expected)) return;
+    if (code_differs((uintptr_t)GA(0x617810), expected, sizeof expected)) return;
     BYTE* trampoline = (BYTE*)VirtualAlloc(nullptr, 11, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
     if (!trampoline) return;
     memcpy(trampoline, expected, 6); trampoline[6] = 0xe9;
-    *(int*)(trampoline + 7) = (int)(0x617816 - ((uintptr_t)trampoline + 11));
+    *(int*)(trampoline + 7) = (int)(GA(0x617816) - ((uintptr_t)trampoline + 11));
     g_transform_exec = (TransformExecFn)trampoline;
     g_nt_trace = true;
     g_nt_nopark = game_file_exists("trials_revive_nt_nopark.txt");
     if (g_nt_nopark) shim_log("nt trace: nopark experiment ON (park-all 1078 only at race start)");
-    if (patch_jmp(0x617810, expected, sizeof expected, (void*)&nt_transform_exec))
+    if (patch_jmp(GA(0x617810), expected, sizeof expected, (void*)&nt_transform_exec))
         shim_log("nt trace: generation-chain trace enabled (transforms, retargetors, set-vector, vectors)");
     start_portal_state_hook();
 }
