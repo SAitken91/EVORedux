@@ -36,3 +36,6 @@ DLCContent/
 
 __pycache__/
 *.pyc
+
+# DLC importer log (player side)
+dlc_import_log.txt

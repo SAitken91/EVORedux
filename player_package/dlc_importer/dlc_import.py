@@ -47,13 +47,48 @@ def step(text):
     print(f"[{time.strftime('%H:%M:%S')}] {text}", flush=True)
 
 
-def pack_of(package):
-    pkg = stfs_extract.STFS(package)
+def pack_in_configs(root):
+    """Pack folder name from an extracted pack's data/configs.pak (pack1/... or pack2/... files)."""
+    from pak import read_pak
+    d, files = read_pak(os.path.join(root, "data", "configs.pak"))
+    names = [n for n, _ in dlc_unpack.names_of(d, files)]
+    for n in names:
+        if n.startswith("pack1/"):
+            return "OriginofPain"
+        if n.startswith("pack2/"):
+            return "RidersofDoom"
+    return None
+
+
+def pack_of(source, work, index):
+    """(pack folder name, source) for a package file or an already-extracted pack folder.
+    A package whose title isn't recognised (e.g. another language) is extracted and identified
+    by its contents; the source then becomes the extracted folder."""
+    if os.path.isdir(source):
+        folder = pack_in_configs(source)
+        if not folder:
+            raise SystemExit(f"{source}: this folder isn't a Trials Evolution DLC pack")
+        return folder, source
+    pkg = stfs_extract.STFS(source)
     name = pkg.display_name.lower()
     for key, folder in PACKS.items():
         if key in name:
             return folder, pkg
-    raise SystemExit(f"{package}: '{pkg.display_name}' is not a Trials Evolution DLC pack this tool knows")
+    check_package(pkg, source)
+    out = os.path.join(work, "raw", f"_package{index}")
+    step(f"{source}: '{pkg.display_name}' - extracting to find out which pack it is")
+    pkg.extract(out)
+    folder = pack_in_configs(out) if os.path.exists(os.path.join(out, "data", "configs.pak")) else None
+    if not folder:
+        raise SystemExit(f"{source}: '{pkg.display_name}' is not a Trials Evolution DLC pack")
+    return folder, out
+
+
+def check_package(pkg, source):
+    bad = pkg.verify()
+    if bad:
+        raise SystemExit(f"{source}: {len(bad)} damaged blocks in this package file. Copy it from the "
+                         "console again (the copy is incomplete or corrupted).")
 
 
 def through(convert, path):
@@ -111,9 +146,14 @@ def find_game():
 
 
 def find_packages(paths):
-    """Package files among paths (files or folders): Xbox STFS files start with LIVE, CON or PIRS."""
+    """Package files among paths (files or folders): Xbox STFS files start with LIVE, CON or PIRS.
+    A folder holding an already-extracted pack (data/configs.pak) counts as one package."""
     found = []
     for p in paths:
+        if os.path.isdir(p):
+            extracted = [dp for dp, _, fs in os.walk(p)
+                         if os.path.basename(dp).lower() == "data" and "configs.pak" in [f.lower() for f in fs]]
+            found += [os.path.dirname(dp) for dp in extracted]
         files = [p] if os.path.isfile(p) else [os.path.join(dp, f) for dp, _, fs in os.walk(p) for f in fs]
         for f in files:
             try:
@@ -123,6 +163,36 @@ def find_packages(paths):
             except OSError:
                 pass
     return found
+
+
+NEEDED_SPACE = 7 * 1024 ** 3      # extracted (~2 GB) + converted (~3 GB) packs, with headroom
+
+
+def pick_work_folder(requested, game):
+    """A writable work folder with enough free space: next to the game if possible (the install
+    is then a quick move on the same drive), else in the user's local app data."""
+    choices = [requested] if requested else [
+        os.path.join(game, "dlc_import_work"),
+        os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "EVORedux", "dlc_import_work")]
+    problems = []
+    for choice in choices:
+        choice = os.path.abspath(choice)
+        try:
+            os.makedirs(choice, exist_ok=True)
+            probe = os.path.join(choice, "write_test.tmp")
+            with open(probe, "w") as f:
+                f.write("ok")
+            os.remove(probe)
+        except OSError as e:
+            problems.append(f"{choice}: not writable ({e.strerror})")
+            continue
+        free = shutil.disk_usage(choice).free
+        if free < NEEDED_SPACE:
+            problems.append(f"{choice}: only {free / 1024 ** 3:.1f} GB free, about 7 GB needed")
+            continue
+        return choice
+    raise SystemExit("No work folder available:\n  " + "\n  ".join(problems)
+                     + "\nFree up disk space, or run with --work \"<folder on a drive with space>\".")
 
 
 def check_game(game):
@@ -153,16 +223,21 @@ def convert_sound(folder, raw, pc, work, game):
     shutil.rmtree(unpacked, ignore_errors=True)
 
 
-def convert_pack(folder, pkg, work, game):
+def convert_pack(folder, source, work, game):
     raw = os.path.join(work, "raw")
     pc = os.path.join(work, "pc")
-    step(f"{folder}: checking the dump against its built-in hashes")
-    bad = pkg.verify()
-    if bad:
-        raise SystemExit(f"{folder}: {len(bad)} damaged blocks in the package file. Copy it from the "
-                         "console again (the copy is incomplete or corrupted).")
-    step(f"{folder}: extracting the Xbox package")
-    pkg.extract(os.path.join(raw, folder))
+    target = os.path.join(raw, folder)
+    if isinstance(source, stfs_extract.STFS):
+        step(f"{folder}: checking the dump against its built-in hashes")
+        check_package(source, folder)
+        step(f"{folder}: extracting the Xbox package")
+        source.extract(target)
+    elif os.path.abspath(source) != os.path.abspath(target):
+        step(f"{folder}: copying the extracted pack")
+        if os.path.dirname(os.path.abspath(source)) == os.path.abspath(raw):
+            os.replace(source, target)                   # identified by contents, already ours
+        else:
+            shutil.copytree(source, target)
     step(f"{folder}: converting textures and archives")
     dlc_convert.convert_pack(os.path.join(raw, folder), os.path.join(pc, folder))
     step(f"{folder}: converting virtual textures (the slow part)")
@@ -224,13 +299,16 @@ def main():
     if not packages:
         raise SystemExit("No DLC package files found. Put your dumped DLC files in the DLC folder "
                          "(or drag them onto IMPORT_DLC.bat) and run again.")
+    work = pick_work_folder(args.work, game)
+    step(f"work folder: {work}")
     packs = {}
-    for package in packages:
-        folder, pkg = pack_of(package)
-        packs[folder] = pkg
-        step(f"{package}: {pkg.display_name}")
-    work = os.path.abspath(args.work or os.path.join(game, "dlc_import_work"))
-    os.makedirs(work, exist_ok=True)
+    for i, package in enumerate(packages):
+        folder, source = pack_of(package, work, i)
+        if folder in packs:
+            step(f"{package}: another copy of {folder}, skipped")
+            continue
+        packs[folder] = source
+        step(f"{package}: {folder}")
 
     import json
     with open(os.path.join(TOOLS, "dlc_leaderboard_ids.json")) as f:
@@ -260,5 +338,54 @@ def main():
     step("all done - start the game and look for the DLC events on the world map")
 
 
+class Tee:
+    """Copies console output into the log file players can send when asking for help."""
+    def __init__(self, stream, log):
+        self.stream, self.log = stream, log
+
+    def write(self, text):
+        self.stream.write(text)
+        self.log.write(text)
+        self.log.flush()
+
+    def flush(self):
+        self.stream.flush()
+
+
+def run():
+    log_path = os.path.join(os.path.dirname(TOOLS), "dlc_import_log.txt")
+    try:
+        log = open(log_path, "w", encoding="utf-8")
+        sys.stdout = Tee(sys.stdout, log)
+        sys.stderr = Tee(sys.stderr, log)
+    except OSError:
+        log_path = None
+    step(f"EVO Redux DLC importer, Python {sys.version.split()[0]}, {sys.platform}")
+    try:
+        main()
+    except SystemExit as e:
+        if e.code not in (None, 0):
+            print(f"\nERROR: {e.code}")
+            if log_path:
+                print(f"(details saved in {log_path})")
+            sys.exit(1)
+        raise
+    except PermissionError as e:
+        import traceback
+        traceback.print_exc()
+        print(f"\nERROR: Windows refused access to {e.filename}.\n"
+              "Close the game, then right-click IMPORT_DLC.bat and choose 'Run as administrator'.")
+        if log_path:
+            print(f"(details saved in {log_path})")
+        sys.exit(1)
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        print("\nERROR: the import stopped unexpectedly (see above).")
+        if log_path:
+            print(f"Please send {log_path} when asking for help.")
+        sys.exit(1)
+
+
 if __name__ == "__main__":
-    main()
+    run()

@@ -6,6 +6,8 @@ setlocal
 cd /d "%~dp0"
 title EVO Redux - DLC importer
 
+if not exist "dlc_importer\dlc_import.py" goto :notextracted
+
 set "PY="
 where py >nul 2>nul && set "PY=py -3"
 if not defined PY where python >nul 2>nul && set "PY=python"
@@ -24,7 +26,7 @@ pause
 if errorlevel 1 (
     echo.
     echo The import did not finish. The message above says why.
-    echo If you ask for help, include the text above.
+    echo If you ask for help, send the file dlc_import_log.txt from this folder.
 ) else (
     echo.
     echo Done! Start Trials Evolution and look for the DLC on the world map.
@@ -32,6 +34,15 @@ if errorlevel 1 (
 echo.
 pause
 exit /b
+
+:notextracted
+echo The EVO Redux zip has to be extracted first.
+echo.
+echo Right-click the zip, choose "Extract All...", then open the extracted
+echo TrialsEvolutionRevival folder and run IMPORT_DLC.bat from there.
+echo.
+pause
+exit /b 1
 
 :nopython
 echo This needs 64-bit Python 3.10 or newer, which wasn't found.
