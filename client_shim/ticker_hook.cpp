@@ -93,13 +93,39 @@ bool dlc_folder_present() {
     return attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY);
 }
 
-void maybe_start_dlc() {
-    if (g_dlc_state == 2) return;
+// First call: is there DLC to load, and is this the game build the addresses below belong to?
+// Nothing reads the game's globals before this has passed (a different build crashed reading them).
+bool dlc_supported() {
     if (g_dlc_state == 0) {
-        bool ok = dlc_folder_present() && memcmp((void*)DLC_JOB_START, DLC_JOB_START_CODE, sizeof DLC_JOB_START_CODE) == 0;
+        bool code = memcmp((void*)DLC_JOB_START, DLC_JOB_START_CODE, sizeof DLC_JOB_START_CODE) == 0;
+        bool ok = dlc_folder_present() && code;
         g_dlc_state = ok ? 1 : 2;
-        if (!ok) return;
+        const IMAGE_DOS_HEADER* dos = (const IMAGE_DOS_HEADER*)GetModuleHandleA(nullptr);
+        const IMAGE_NT_HEADERS* nt = (const IMAGE_NT_HEADERS*)((const BYTE*)dos + dos->e_lfanew);
+        char line[200];
+        sprintf_s(line, "dlc: game build %08lx size %08lx, DLC loader %s, DLCContent %s",
+            nt->FileHeader.TimeDateStamp, nt->OptionalHeader.SizeOfImage, code ? "recognised" : "NOT recognised (other build)",
+            dlc_folder_present() ? "present" : "absent");
+        shim_log(line);
     }
+    return g_dlc_state == 1;
+}
+
+// The game's readiness for loading DLC: signed in, event manager built, loading finished.
+bool dlc_game_ready() {
+    __try {
+        char* platform = *(char**)0x1ee34cc;
+        char* session = platform ? *(char**)(platform + 0x127c) : nullptr;
+        char* game = *(char**)0x1ee3548;
+        return session && *(unsigned char*)(session + 0x24) && game && *(char**)(game + 0x9c)
+               && *(void**)(game + 0xa0) && *(volatile unsigned char*)0x1ee3541;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+void maybe_start_dlc() {
+    if (!dlc_supported()) return;
     char* platform = *(char**)0x1ee34cc;
     char* session = platform ? *(char**)(platform + 0x127c) : nullptr;
     char* game = *(char**)0x1ee3548;
@@ -157,12 +183,8 @@ void dlc_frame_main() {
     // built, loading finished) are what made it safe; once they have held for ~30 frames in a row,
     // register the DLC right here.
     static int ready_frames;
-    char* platform = *(char**)0x1ee34cc;
-    char* session = platform ? *(char**)(platform + 0x127c) : nullptr;
-    char* game = *(char**)0x1ee3548;
-    bool ready = session && *(unsigned char*)(session + 0x24) && game && *(char**)(game + 0x9c)
-                 && *(void**)(game + 0xa0) && *(volatile unsigned char*)0x1ee3541;
-    ready_frames = ready ? ready_frames + 1 : 0;
+    if (!dlc_supported()) return;
+    ready_frames = dlc_game_ready() ? ready_frames + 1 : 0;
     if (ready_frames < 30) return;
     g_dlc_from_frame = true;
     maybe_start_dlc();

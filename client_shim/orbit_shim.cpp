@@ -423,6 +423,41 @@ static void allow_second_copy() {
     shim_log("test profile: running alongside another copy");
 }
 
+// Diagnostic for game builds the fixes don't recognise (e.g. Ubisoft Connect's): logs where the
+// image is loaded and the bytes at a few functions' Steam-build offsets, so it can be told whether
+// the build is the same code at another address or a different compile. Waits for the code to
+// appear first (a DRM-wrapped image is unpacked after start). Reads only; changes nothing.
+static DWORD WINAPI build_probe(LPVOID) {
+    static const DWORD rvas[] = {0x26c450, 0x254b80, 0x217810, 0x7c510, 0x89ce0, 0x22ef10};
+    static const char* names[] = {"dlc job start", "dlc enumerate", "transform exec", "tick logic",
+                                  "set transform", "random value"};
+    const BYTE* base = (const BYTE*)GetModuleHandleA(nullptr);
+    const IMAGE_NT_HEADERS* nt = (const IMAGE_NT_HEADERS*)(base + ((const IMAGE_DOS_HEADER*)base)->e_lfanew);
+    if ((uintptr_t)base == 0x400000 && memcmp((void*)0x66c450, "\x8b\xc1\x80\x78\x1c\x00", 6) == 0)
+        return 0;                                               // the Steam build: nothing to report
+    for (int i = 0; i < 60; ++i) {                              // up to 60 s for an unpacking image
+        bool code = false;
+        __try { code = *(const DWORD*)(base + rvas[0]) != 0; } __except (EXCEPTION_EXECUTE_HANDLER) {}
+        if (code) break;
+        Sleep(1000);
+    }
+    char line[300];
+    sprintf_s(line, "build probe: base %p, image size %08lx, timestamp %08lx, checksum %08lx, entry %08lx",
+        base, nt->OptionalHeader.SizeOfImage, nt->FileHeader.TimeDateStamp, nt->OptionalHeader.CheckSum,
+        nt->OptionalHeader.AddressOfEntryPoint);
+    shim_log(line);
+    for (int k = 0; k < 6; ++k) {
+        int n = sprintf_s(line, "build probe: %-14s rva %06lx:", names[k], rvas[k]);
+        for (int j = 0; j < 32 && n > 0; ++j) {
+            int v = -1;
+            __try { v = base[rvas[k] + j]; } __except (EXCEPTION_EXECUTE_HANDLER) {}
+            n += v < 0 ? sprintf_s(line + n, sizeof line - n, " ??") : sprintf_s(line + n, sizeof line - n, " %02x", v);
+        }
+        shim_log(line);
+    }
+    return 0;
+}
+
 BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID) {
     if (reason == DLL_PROCESS_ATTACH) {
         g_self = instance;
@@ -433,6 +468,7 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID) {
         start_gamelog_hook();
         start_dlc_fixes();
         start_ticker_hook();
+        if (HANDLE t = CreateThread(nullptr, 0, build_probe, nullptr, 0, nullptr)) CloseHandle(t);
     }
     return TRUE;
 }

@@ -197,6 +197,17 @@ def pick_work_folder(requested, game):
                      + "\nFree up disk space, or run with --work \"<folder on a drive with space>\".")
 
 
+STEAM_BUILD = 0x529D7E1B          # trialsFMX.exe PE timestamp of the Steam build the DLC fixes target
+
+
+def game_build(game):
+    import struct
+    with open(os.path.join(game, "datapack", "trialsFMX.exe"), "rb") as f:
+        head = f.read(4096)
+    pe = struct.unpack_from("<I", head, 0x3C)[0]
+    return struct.unpack_from("<I", head, pe + 8)[0]
+
+
 def check_game(game):
     for rel in ("datapack/trialsFMX.exe", "build/data/data.pak"):
         if not os.path.exists(os.path.join(game, rel)):
@@ -297,6 +308,14 @@ def main():
     game = os.path.abspath(game)
     check_game(game)
     step(f"game: {game}")
+    build = game_build(game)
+    if build != STEAM_BUILD:
+        raise SystemExit(
+            f"This game is a different build of trialsFMX.exe ({build:08x}) than the Steam version "
+            f"({STEAM_BUILD:08x}), most likely the Ubisoft Connect version. The DLC fixes only work "
+            "with the Steam version for now, so importing would not make the DLC playable.\n"
+            "Online play, leaderboards and ghosts still work. Ubisoft Connect support for the DLC "
+            "is being worked on - watch the EVO Redux releases.")
     packages = find_packages(args.packages or [os.path.join(os.path.dirname(TOOLS), "DLC")])
     if not packages:
         raise SystemExit("No DLC package files found. Put your dumped DLC files in the DLC folder "
