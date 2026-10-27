@@ -15,6 +15,7 @@
 // Addresses are from trialsFMX.exe (Steam, fixed base 0x400000) and are checked before anything
 // is patched; any other build is left alone.
 #include <windows.h>
+#pragma comment(lib, "user32.lib")   // EnumWindows: find the game window's thread
 #include <winhttp.h>
 #include <stdio.h>
 #include <string.h>
@@ -97,7 +98,16 @@ bool dlc_folder_present() {
 // Nothing reads the game's globals before this has passed (a different build crashed reading them).
 bool dlc_supported() {
     if (g_dlc_state == 0) {
-        bool code = memcmp((void*)DLC_JOB_START, DLC_JOB_START_CODE, sizeof DLC_JOB_START_CODE) == 0;
+        // Only the Steam build (loaded at 0x400000) has this code at this address; on other builds
+        // the address may not even be mapped (Ubisoft Connect's loads at another base).
+        bool code = false;
+        if ((uintptr_t)GetModuleHandleA(nullptr) == 0x400000) {
+            __try {
+                code = memcmp((void*)DLC_JOB_START, DLC_JOB_START_CODE, sizeof DLC_JOB_START_CODE) == 0;
+            } __except (EXCEPTION_EXECUTE_HANDLER) {
+                code = false;
+            }
+        }
         bool ok = dlc_folder_present() && code;
         g_dlc_state = ok ? 1 : 2;
         const IMAGE_DOS_HEADER* dos = (const IMAGE_DOS_HEADER*)GetModuleHandleA(nullptr);
@@ -167,8 +177,20 @@ volatile LONG g_dlc_menu_seen;
 volatile DWORD g_dlc_menu_thread;      // thread that looked up the menu text (the game's main thread)
 volatile LONG g_dlc_frames;            // per-frame calls seen
 volatile DWORD g_dlc_menu_tick;        // when the menu text was first looked up
+// The thread that owns the game's visible window: its main loop. OrbitClient::Update is also
+// called from the loading thread; registering the DLC there once deadlocked against the main thread.
+BOOL CALLBACK find_game_window(HWND hwnd, LPARAM out) {
+    DWORD pid = 0;
+    DWORD thread = GetWindowThreadProcessId(hwnd, &pid);
+    if (pid == GetCurrentProcessId() && IsWindowVisible(hwnd) && !GetWindow(hwnd, GW_OWNER)) {
+        *(DWORD*)out = thread;
+        return FALSE;
+    }
+    return TRUE;
+}
+
 void dlc_frame_main() {
-    static DWORD update_thread;
+    static DWORD update_thread, window_thread;
     DWORD me = GetCurrentThreadId();
     if (!update_thread) {
         update_thread = me;
@@ -178,10 +200,19 @@ void dlc_frame_main() {
     }
     g_dlc_frames++;
     if (g_dlc_state == 2) return;
+    if (!window_thread) {
+        if (g_dlc_frames % 30) return;                       // look for the window now and then
+        EnumWindows(find_game_window, (LPARAM)&window_thread);
+        if (!window_thread) return;
+        char line[120];
+        sprintf_s(line, "dlc: game window thread %lu", window_thread);
+        shim_log(line);
+    }
+    if (me != window_thread) return;
     // The menu text hooks are not a reliable signal (a player can reach Single Player before the
     // ticker is ever asked for). maybe_start_dlc's own readiness checks (signed in, event manager
-    // built, loading finished) are what made it safe; once they have held for ~30 frames in a row,
-    // register the DLC right here.
+    // built, loading finished) are what made it safe; once they have held for ~30 of this thread's
+    // frames in a row, register the DLC right here.
     static int ready_frames;
     if (!dlc_supported()) return;
     ready_frames = dlc_game_ready() ? ready_frames + 1 : 0;
