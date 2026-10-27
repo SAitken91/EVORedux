@@ -100,8 +100,10 @@ def through(convert, path):
 
 def game_running():
     import subprocess
-    out = subprocess.run(["tasklist", "/fi", "imagename eq trialsFMX.exe"], capture_output=True, text=True)
-    return "trialsfmx.exe" in out.stdout.lower()
+    # Bytes, not text: tasklist prints its headers in the console code page (e.g. German umlauts),
+    # which Python 3.15's UTF-8 default can't decode. The process name itself is plain ASCII.
+    out = subprocess.run(["tasklist", "/fi", "imagename eq trialsFMX.exe"], capture_output=True)
+    return b"trialsfmx.exe" in (out.stdout or b"").lower()
 
 
 def find_game():
@@ -301,6 +303,10 @@ def main():
                          "(or drag them onto IMPORT_DLC.bat) and run again.")
     work = pick_work_folder(args.work, game)
     step(f"work folder: {work}")
+    for leftover in os.listdir(work):                     # only what an earlier, unfinished run made
+        if leftover in ("raw", "pc") or leftover.startswith(("unpacked_", "audio_")):
+            step(f"removing leftovers of an earlier run: {leftover}")
+            shutil.rmtree(os.path.join(work, leftover), ignore_errors=True)
     packs = {}
     for i, package in enumerate(packages):
         folder, source = pack_of(package, work, i)
