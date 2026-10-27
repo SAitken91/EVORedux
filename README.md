@@ -125,7 +125,8 @@ time and you're on the board with them.
 
 The PC Gold Edition never got the Xbox 360 DLC packs. EVO Redux makes them run on PC:
 **Origin of Pain** and **Riders of Doom**, including Neverending Trials with its endless
-generated rounds, the fire effects, and online leaderboards for every DLC track.
+generated rounds, the fire effects, and online leaderboards for every DLC track. It works with
+both the **Steam** and the **Ubisoft Connect** version of the game.
 
 EVO Redux does **not** include the DLC itself. The tracks and assets belong to Ubisoft/RedLynx
 and are not distributed here. You need your own copy of the DLC packs, dumped from your own
