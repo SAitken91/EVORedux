@@ -57,9 +57,16 @@ class STFS:
         import hashlib
         bad = []
         for block in range(self.total_blocks):
-            self.f.seek(self.data_base + (self.level0_hash_block(block) << 12) + (block % 0xAA) * 0x18)
-            expected = self.f.read(20)
-            if hashlib.sha1(self.read_block(block)).digest() != expected:
+            digest = hashlib.sha1(self.read_block(block)).digest()
+            hb = self.level0_hash_block(block)
+            # Packages saved more than once (shift 1) keep two copies of each hash table; the
+            # second one is current for blocks rewritten since. A block is good if either matches.
+            copies = (hb, hb + 1) if self.shift else (hb,)
+            for table in copies:
+                self.f.seek(self.data_base + (table << 12) + (block % 0xAA) * 0x18)
+                if self.f.read(20) == digest:
+                    break
+            else:
                 bad.append(block)
         return bad
 
@@ -102,7 +109,8 @@ class STFS:
             idx = entries[idx]["parent"]
         return "/".join(reversed(parts))
 
-    def extract(self, out_dir, list_only=False):
+    def extract(self, out_dir, list_only=False, tolerate_short=()):
+        """tolerate_short: file names allowed to come out short (package cut off at the end)."""
         ents = self.entries()
         for i, e in enumerate(ents):
             if e is None:
@@ -122,7 +130,7 @@ class STFS:
                     chunk = self.read_block(b)[:min(0x1000, remaining)]
                     w.write(chunk)
                     remaining -= len(chunk)
-            if remaining:
+            if remaining and os.path.basename(rel) not in tolerate_short:
                 raise IOError(f"{rel}: {remaining} bytes short")
         return ents
 
