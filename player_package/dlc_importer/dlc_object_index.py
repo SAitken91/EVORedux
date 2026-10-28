@@ -1,5 +1,10 @@
 """Stage per-world PC+DLC object VT indices and noncolliding raw filenames.
 
+Also stages each pack's object decal table (vtex/decalsObjects.dat from its data.pak, already
+converted by dlc_vtex.py) as build\data\vtex\decalsObjects_dlc<world>.dat: the game hardcodes the
+base table for every world, and the client shim switches DLC worlds to these (patchy seabed on
+Buccaneer Bay and other Paine Island tracks without them).
+
 Uses the installed archives (not potentially stale conversion output). Original
 base index and raw files are never changed. Pair with the object-index shim hook.
 """
@@ -72,9 +77,15 @@ def main():
         output = struct.pack('<I', len(merged)) + b''.join(
             struct.pack('<IIHB', *merged[p]) for p in sorted(merged))
         assert len(rows(output)) == len(merged)
+        decals = next((e for e in entries if e['hash'] == name_hash('vtex/decalsObjects.dat')), None)
+        decals_name = None
+        if decals:
+            decals_name = f'decalsObjects_dlc{world}.dat'
+            (args.output / decals_name).write_bytes(file_data(data, decals))
         name = f'vtex_objects_dlc{world}.raw.hdr'
         (args.output / name).write_bytes(output)
-        item = {'pack': pack, 'world': world, 'base_pages': len(base), 'dlc_pages': len(dlc),
+        item = {'pack': pack, 'world': world, 'decals': decals_name,
+                'base_pages': len(base), 'dlc_pages': len(dlc),
                 'merged_pages': len(merged), 'overlapping_pages': len(base)+len(dlc)-len(merged),
                 'header': name, 'files': files, 'mapping': mapping}
         report['packs'].append(item)

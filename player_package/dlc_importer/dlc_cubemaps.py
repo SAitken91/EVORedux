@@ -7,6 +7,10 @@ inflates that payload with zlib, so every shiny DLC surface sampled garbage (the
 plane, GitHub issue #2). The decoded pixels are byte-identical to the PC's copies of the same cube
 maps, so only the compression changes. dlc_convert.py is fixed for new imports; this repairs a
 pack that was already imported.
+It also repairs the 256x256 terrain height atlases (8 in Origin of Pain, 7 in Riders of Doom)
+whose XMem payload came out 28 bytes larger than the pixels, which the converter's size check
+rejected. Terrain decals are composed on the CPU from these, so the DLC seabed and ground decals
+drew garbage (white tiles, sign lettering on Buccaneer Bay's seabed).
 Usage: python dlc_cubemaps.py SOURCE_DATA_TEX_PAK OUTPUT_PAK
 """
 import pathlib

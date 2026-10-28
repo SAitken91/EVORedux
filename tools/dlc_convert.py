@@ -27,12 +27,15 @@ TEXTURE_MAGICS = (b"T3X", b"T4X", b"T5X", b"T6X", b"T7X", b"T8X")
 def find_xmem_payload(b):
     """Offset of the 01 flag that precedes an XMem payload ending exactly at end of file.
     Cube maps have a longer header (a 6-face table: the flag sits at byte 120), so the search
-    covers the first 1 KB; the exact-end check keeps it from matching inside a header."""
+    covers the first 1 KB; the exact-end check keeps it from matching inside a header.
+    Noisy textures can come out slightly larger than their pixels (the 256x256 terrain height
+    atlases: 43676 packed for 43648), so the packed size may exceed the unpacked size by the
+    XMem framing overhead."""
     for o in range(8, min(len(b) - 10, 1024)):
         if b[o] != 1:
             continue
         usize, psize = struct.unpack_from("<II", b, o + 1)
-        if o + 9 + psize == len(b) and 0 < psize <= usize < 64 * 1024 * 1024:
+        if o + 9 + psize == len(b) and 0 < usize < 64 * 1024 * 1024 and 0 < psize <= usize + usize // 64 + 256:
             first = b[o + 9]
             if first == 0xFF or struct.unpack_from(">H", b, o + 9)[0] <= psize:
                 return o

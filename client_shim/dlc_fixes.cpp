@@ -1158,6 +1158,52 @@ __declspec(naked) void dlc_object_index_stub() {
     }
 }
 
+// Decal objects. The block renderer (0x80a4a0) opens the terrain decals per world
+// ("vtex/decalsTerrain" + world+1, from [renderer+0xd4]) but hardcodes "vtex/decalsObjects.dat" at
+// 0x80a569, so DLC worlds drew their decal objects (sand, rock, weed patches) from the PC base table:
+// Buccaneer Bay's seabed came out as white tiles and sign lettering (RenderDoc: the terrain draw).
+// Both DLC packs ship the 360's own vtex/decalsObjects.dat (identical in the two packs, not the PC
+// file); the importer stages it as build\data\vtex\decalsObjects_dlc<N>.dat. DLC worlds use it when
+// it is there; base worlds keep the PC file.
+extern "C" const char* __cdecl dlc_decal_objects(DWORD world) {
+    const char* original = "vtex/decalsObjects.dat";
+    if (world != 1 && world != 2) return original;
+    const char* selected = world == 1 ? "vtex/decalsObjects_dlc1.dat" : "vtex/decalsObjects_dlc2.dat";
+    char path[MAX_PATH];
+    DWORD n = GetModuleFileNameA(nullptr, path, MAX_PATH);
+    if (!n || n >= MAX_PATH) return original;
+    while (n && path[n - 1] != '\\') n--;
+    if (!n || n + 60 >= MAX_PATH) return original;
+    sprintf_s(path + n, MAX_PATH - n, "..\\build\\data\\%s", selected);
+    DWORD attr = GetFileAttributesA(path);
+    char line[160];
+    if (attr == INVALID_FILE_ATTRIBUTES || (attr & FILE_ATTRIBUTE_DIRECTORY)) {
+        sprintf_s(line, "dlc texture fix: %s not staged; world %lu keeps the base decal objects", selected, world);
+        shim_log(line);
+        return original;
+    }
+    sprintf_s(line, "dlc texture fix: world %lu decal objects from %s", world, selected);
+    shim_log(line);
+    return selected;
+}
+
+uintptr_t ga_80a56e = GA(0x80a56e);
+// Replaces push 01ADCC10h at 80a569 (ebp = block renderer); same contract as the index stub above.
+__declspec(naked) void dlc_decal_objects_stub() {
+    __asm {
+        pushfd
+        pushad
+        push dword ptr [ebp + 0xd4]
+        call dlc_decal_objects
+        add esp, 4
+        mov [esp + 0x24], eax
+        popad
+        popfd
+        push ga_80a56e
+        ret
+    }
+}
+
 // ---- 8. DLC-only trigger-system objects ----------------------------------------------------
 // The DLC added trigger-system node types the PC factories never create (vector data sources and
 // operators, the set_vector event, the switch filter). Their TRIl records stay in the stream and
@@ -1273,6 +1319,7 @@ bool table_has(const BYTE* table, DWORD key) {
 #include "dlc_renderdoc.inl"
 #include "dlc_particle_atlas.inl"
 #include "dlc_counter_gate.inl"
+#include "dlc_page_clear.inl"
 
 int __fastcall dlc_node_read(void* self, void*, void* stream, void* objects, void* selected, int version) {
     int i = dlc_node_index(self);
@@ -1634,6 +1681,38 @@ void __fastcall play_user_track_in_its_world(void* sharing, void* edx, DWORD id,
     ((PlayUserTrackFn)PLAY_USER_TRACK)(sharing, edx, id, a1, a2, a3, a4, a5, a6, a7);
 }
 
+// ---- 11. Virtual-texture tiles left over from the previous world -----------------------------------
+// Changing world (world switch 0x4ab1c0 -> VT index loader 0x80de30) loads the new world's terrain and
+// object page indices but keeps the page cache's already-decoded tiles. Page ids repeat between
+// worlds, so tiles of the previous world kept showing: Paine Island ground on base tracks played
+// after it (GitHub issue), patches of other ground and sign textures on Buccaneer Bay, Recon Rider
+// and Adrenaline Fair. The PC shipped with one world and never needed more; the engine still has the
+// two "reload everything" calls (0x80cb20 / 0x80cb60: mark the cache's two dirty rectangles as the
+// whole 0..0x40000 range, under the cache lock), which nothing calls. After the loader returns, both
+// are called on the page cache ([[[0x1eee680]+0x40]], the one VirtualTexture::0x7ac000 updates every
+// frame), so the next frame reloads every tile from the new world's data.
+const uintptr_t WORLD_VT_LOAD_CALL = GA(0x4ab33c);   // world switch: call 80DE30h, ecx = VT system
+const uintptr_t VT_LOAD_INDICES = GA(0x80de30);      // VT system: (world), ret 4
+const uintptr_t VT_RELOAD_ALL_1 = GA(0x80cb20);      // page cache: whole first dirty rectangle
+const uintptr_t VT_RELOAD_ALL_2 = GA(0x80cb60);      // page cache: whole second dirty rectangle
+const uintptr_t VIRTUAL_TEXTURE = GA(0x1eee680);     // [..] = VirtualTexture; [+0x40] -> {page cache, VT system, ...}
+
+void __fastcall load_world_textures_fresh(void* vt_system, void* edx, DWORD world) {
+    ((ThisArgFn)VT_LOAD_INDICES)(vt_system, edx, world);
+    __try {
+        const BYTE* texture = *(const BYTE* const*)VIRTUAL_TEXTURE;
+        void* page_cache = texture ? **(void* const* const*)(texture + 0x40) : nullptr;
+        if (!page_cache) return;
+        ((ThisFn)VT_RELOAD_ALL_1)(page_cache, nullptr);
+        ((ThisFn)VT_RELOAD_ALL_2)(page_cache, nullptr);
+        char line[96];
+        sprintf_s(line, "dlc texture fix: world %lu loaded; texture page cache reloaded", world);
+        shim_log(line);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        shim_log("dlc texture fix: reloading the texture page cache faulted");
+    }
+}
+
 bool dlc_present() {
     char path[MAX_PATH];
     DWORD n = GetModuleFileNameA(nullptr, path, MAX_PATH);
@@ -1672,6 +1751,11 @@ void start_dlc_fixes() {
     start_renderdoc_loader();
     start_particle_atlas_fix();
     start_counter_gate();
+    start_page_clear_fix();
+    const unsigned char decal_objects_push[5] = {0x68, 0x10, 0xcc, 0xad, 0x01};   // push 01ADCC10h
+    shim_log(ga_80a56e && patch_call(GA(0x80a569), decal_objects_push, 5, (void*)&dlc_decal_objects_stub)
+                 ? "dlc texture fix: DLC worlds use their own decal objects"
+                 : "dlc texture fix: decal objects hook skipped (unexpected code or address unknown for this build)");
     const unsigned char object_index_push[5] = {0x68, 0xd4, 0xcd, 0xad, 0x01};
     if (game_file_exists("trials_revive_no_object_index.txt"))
         shim_log("dlc texture fix: per-world object index DISABLED by trials_revive_no_object_index.txt (test)");
@@ -1712,6 +1796,12 @@ void start_dlc_fixes() {
                      patch_call(PACK_COLLECTIONS_CALL, collections_call, 5, (void*)&load_pack_collections_and_classify)
                  ? "dlc fix: DLC object definitions are classified when the packs load (custom tracks in base worlds)"
                  : "dlc fix: DLC object classification skipped (unexpected code or address unknown for this build)");
+    unsigned char vt_call[5] = {0xE8};
+    *(int*)(vt_call + 1) = (int)(VT_LOAD_INDICES - (WORLD_VT_LOAD_CALL + 5));
+    shim_log(WORLD_VT_LOAD_CALL && VT_LOAD_INDICES && VT_RELOAD_ALL_1 && VT_RELOAD_ALL_2 && VIRTUAL_TEXTURE &&
+                     patch_call(WORLD_VT_LOAD_CALL, vt_call, 5, (void*)&load_world_textures_fresh)
+                 ? "dlc texture fix: changing world reloads the texture page cache"
+                 : "dlc texture fix: page cache reload skipped (unexpected code or address unknown for this build)");
     unsigned char play_call[5] = {0xE8};
     *(int*)(play_call + 1) = (int)(PLAY_USER_TRACK - (PLAY_USER_TRACK_CALL + 5));
     unsigned char play_call_no_lb[5] = {0xE8};
