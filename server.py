@@ -19,6 +19,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
+import prudp
 from prudp import PRUDPServer
 from track_library import open_library
 from quazal import (QRESULT_NOT_IMPLEMENTED, SERVER_PID, Accounts, MatchMaking, SecureConnection,
@@ -131,12 +132,14 @@ track_library = open_library() if os.environ.get("TRIALS_LIBRARY", "1") != "0" e
 if track_library:
     log(f"track library: {len(track_library)} tracks by {len(track_library.creators)} creators")
 user_storage = UserStorage(accounts, log, HOST_IP, track_library)
+# Multiplayer (MatchMaking sessions + NAT echo) is still in testing: off unless TRIALS_MULTIPLAYER=1.
+MULTIPLAYER = os.environ.get("TRIALS_MULTIPLAYER") == "1"
+prudp.NAT_ECHO_ENABLED = MULTIPLAYER
 secure_connection = SecureConnection(SECURE_URL, log)
 SERVICES = {
     "auth": {TicketGranting.PROTO: TicketGranting(accounts, SECURE_URL, log)},
     "secure": {
         SecureConnection.PROTO: secure_connection,
-        MatchMaking.PROTO: MatchMaking(secure_connection, log, lambda pid: is_online(pid)),
         Tracking.PROTO: Tracking(),
         Privileges.PROTO: Privileges(),
         UbiAccountManagement.PROTO: UbiAccountManagement(accounts, track_library),
@@ -147,6 +150,8 @@ SERVICES = {
         UserStorage.PROTO: user_storage,
     },
 }
+if MULTIPLAYER:
+    SERVICES["secure"][MatchMaking.PROTO] = MatchMaking(secure_connection, log, lambda pid: is_online(pid))
 
 
 def make_handler(name):

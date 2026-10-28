@@ -175,6 +175,7 @@ NAT_ECHO, NAT_KEEP_ALIVE = 2, 3
 # Recent NAT packets as (ip, port, time): the outside address of each game socket, which is where
 # other players must connect to reach a session it hosts. Matched to sessions by time (quazal.py).
 NAT_SEEN = collections.deque(maxlen=2000)
+NAT_ECHO_ENABLED = False      # multiplayer only (server.py: TRIALS_MULTIPLAYER=1)
 
 
 def nat_echo_reply(data, addr):
@@ -247,7 +248,7 @@ class PRUDPServer:
         self.log(f"[{self.name}] PRUDP listening on UDP {self.port} (vport {self.vport:02x})")
         while True:
             data, addr = self.sock.recvfrom(65535)
-            if data[:2] == NAT_MAGIC:
+            if NAT_ECHO_ENABLED and data[:2] == NAT_MAGIC:
                 NAT_SEEN.append((addr[0], addr[1], time.time()))
                 reply = nat_echo_reply(data, addr)
                 if reply:
