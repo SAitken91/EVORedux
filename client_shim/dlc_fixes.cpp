@@ -1,6 +1,7 @@
 // Trials Evolution revival: code fixes needed to run the Xbox 360 DLC packs on PC.
 //
-// Applied only when datapack\DLCContent exists, and only to the known Steam build (bytes checked).
+// DLC assets require datapack\DLCContent. Serialized v47 compatibility also applies without DLC.
+// Game addresses are translated and patch bytes checked for each supported build.
 //
 // 1. Area volumes: the PC area-volume loader (0x527be0, areavolumes<pack>.xml) ignores the file's
 //    collectionID and always looks the volumes' collision boxes up in the base game's collection
@@ -58,6 +59,7 @@ uintptr_t ga_cf5267 = GA(0xcf5267);
 #include <ctype.h>
 #include <string.h>
 #include <string.h>
+#include "lzma_peek.inl"
 
 void shim_log(const char* msg);
 static bool game_file_exists(const char* name) {
@@ -68,6 +70,10 @@ static bool game_file_exists(const char* name) {
     lstrcpyA(out + n, name);
     return GetFileAttributesA(out) != INVALID_FILE_ATTRIBUTES;
 }
+// Per-record TRI logging (thousands of lines per track load) only when diagnostics are switched on:
+// trials_revive_gamelog.enable or trials_revive_tri_trace.txt in datapack. Read once at load.
+static const bool g_tri_trace = game_file_exists("trials_revive_gamelog.enable") ||
+                                game_file_exists("trials_revive_tri_trace.txt");
 
 namespace {
 
@@ -598,14 +604,14 @@ int __fastcall trace_trigger_load(void* self, void*, void* reader, void* objects
     LONG count = InterlockedIncrement(&g_trigger_trace_count);
     DWORD position = 0;
     char line[240];
-    if (count <= 1000) {
+    if (g_tri_trace && count <= 1000) {
         position = ((ReaderPositionFn)(*(DWORD**)reader)[0x4c / 4])(reader, nullptr);
         sprintf_s(line, "trigger trace: begin #%ld this=%p vtable=%08lx reader=%p pos=%lu version=%d",
                   count, self, *(DWORD*)self, reader, position, version);
         shim_log(line);
     }
     int result = ((TriggerLoadFn)g_trigger_load_original)(self, nullptr, reader, objects, selected, version);
-    if (count <= 1000) {
+    if (g_tri_trace && count <= 1000) {
         DWORD end = ((ReaderPositionFn)(*(DWORD**)reader)[0x4c / 4])(reader, nullptr);
         sprintf_s(line, "trigger trace: end #%ld pos=%lu consumed=%lu result=%d", count, end, end-position, result);
         shim_log(line);
@@ -822,20 +828,53 @@ __declspec(naked) void tri_mismatch_stub() {
 // All four trigger-reading passes converge here. Record the failing object's
 DWORD g_texture_world;
 void portal_register_hit(void* self);
+// Buccaneer Bay (Origin of Pain track 222) has one object, OBJX #1651 (a DataSourceVariable,
+// model 16903902), for which the 360 saved no TRI record: its bytes at body offset 128053 belong
+// to the next datasource. The PC read a record for it anyway, every later record was misaligned, a
+// vector reader then ran 4 KB to the end and each remaining record waited at EOF (the loading
+// screen froze; GitHub issue #2). The 360's Variable reader (TU3 0x825d87a0) skips an owner that
+// is missing from the loader's record set, but on PC that set (loader+0x24a14) holds every object
+// (2493 here, 1651 included), so the 360's rule for leaving it out isn't reproducible yet. It is
+// the only such object in all 82 official DLC tracks and in 5,808 of 5,825 converted 360 tracks
+// (offline walk), so this one record is skipped when every detail matches.
+bool is_buccaneer_bay_missing_record(void* objects, DWORD owner, DWORD start, int version) {
+    if (version != 47 || start != 128053) return false;
+    __try {
+        const DWORD count = *(const DWORD*)objects;
+        const DWORD* items = *(const DWORD* const*)((const BYTE*)objects + 8);
+        if (count != 2493 || items[1651] != owner) return false;
+        const BYTE* info = *(const BYTE* const*)((const BYTE*)owner + 0x44);       // object -> instance info
+        const BYTE* definition = info ? *(const BYTE* const*)info : nullptr;
+        return definition && *(const DWORD*)(definition + 0x40) == 0x16903902;   // DataSourceVariable
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
 int __fastcall trace_trigger_record(void* self, DWORD slot, void* reader, void* objects, void* selected, int version) {
+    bool datasource = slot == 0x130;   // from trace_pass30ds: the datasource pass (same vtable slot as filters)
+    slot &= 0xff;
     DWORD start = ((ReaderPositionFn)(*(DWORD**)reader)[0x4c / 4])(reader, nullptr);
     DWORD vt = *(DWORD*)self;
     char line[240];
-    sprintf_s(line, "TRI record begin: slot=%lx vtable=%08lx id=%lu pos=%lu", slot, vt, ((DWORD*)self)[1], start);
-    shim_log(line);
+    if (datasource && is_buccaneer_bay_missing_record(objects, ((DWORD*)self)[1], start, version)) {
+        shim_log("dlc fix: Buccaneer Bay object 1651 has no TRI record (360 saved none); skipped");
+        return 0;
+    }
+    if (g_tri_trace) {
+        sprintf_s(line, "TRI record begin: slot=%lx vtable=%08lx id=%lu pos=%lu", slot, vt, ((DWORD*)self)[1], start);
+        shim_log(line);
+    }
     int result = ((TriggerLoadFn)(*(DWORD**)self)[slot / 4])(self, nullptr, reader, objects, selected, version);
     DWORD end = ((ReaderPositionFn)(*(DWORD**)reader)[0x4c / 4])(reader, nullptr);
     // Xbox DLC v47 appends two flags to EventPlayerState. The PC implementation
     // reads the common fields only. Leaving these bytes behind misaligns every
     // subsequent event (Forge failed at EventFire with a bogus input count 257).
     // Keep common PC behavior; the two DLC-only flag semantics remain unmapped.
-    if (!result && slot == 0x38 && vt == GA(0x141d39c) && version == 47 &&
-        (g_texture_world == 1 || g_texture_world == 2) && end > start) {
+    // Version 47 is the 360 (TU3) format: PC tracks are v42 (TRIg) and lack these bytes, while 360
+    // custom tracks in base worlds have them too (Blood Moon failed at EventSound when this was
+    // limited to DLC worlds).
+    if (!result && slot == 0x38 && vt == GA(0x141d39c) && version == 47 && end > start) {
         BYTE flags[2] = {};
         StreamReadFn read = *(StreamReadFn*)(*(BYTE**)reader + 0x34);
         if (read(reader, nullptr, flags, 2) != 2) result = 0x401;
@@ -846,8 +885,7 @@ int __fastcall trace_trigger_record(void* self, DWORD slot, void* reader, void* 
     // Likewise the DLC's FilterImpulseCounter records carry one more byte than the PC reads
     // (Forge 419: each counter ends `.. 4b c0 01`; the PC stopped before the 01, so the next
     // FilterImpulseDelay read 3 bytes and failed with 1025 at 212220). Flag semantics unmapped.
-    if (!result && slot == 0x30 && vt == GA(0x1589a1c) && version == 47 &&
-        (g_texture_world == 1 || g_texture_world == 2) && end > start) {
+    if (!result && slot == 0x30 && vt == GA(0x1589a1c) && version == 47 && end > start) {
         BYTE flag = 0;
         StreamReadFn read = *(StreamReadFn*)(*(BYTE**)reader + 0x34);
         if (read(reader, nullptr, &flag, 1) != 1) result = 0x401;
@@ -855,9 +893,11 @@ int __fastcall trace_trigger_record(void* self, DWORD slot, void* reader, void* 
         shim_log(line);
         end = ((ReaderPositionFn)(*(DWORD**)reader)[0x4c / 4])(reader, nullptr);
     }
-    sprintf_s(line, "TRI record end: slot=%lx vtable=%08lx id=%lu pos=%lu consumed=%lu result=%d",
-              slot, vt, ((DWORD*)self)[1], end, end-start, result);
-    shim_log(line);
+    if (g_tri_trace) {
+        sprintf_s(line, "TRI record end: slot=%lx vtable=%08lx id=%lu pos=%lu consumed=%lu result=%d",
+                  slot, vt, ((DWORD*)self)[1], end, end-start, result);
+        shim_log(line);
+    }
     if (!result && slot == 0x28 && vt == GA(0x12b1f54)) portal_register_hit(self);
     return result;
 }
@@ -874,6 +914,11 @@ __declspec(naked) void trace_pass38() {
 }
 __declspec(naked) void trace_pass30() {
     __asm { mov edx, 0x30
+            mov eax, offset trace_trigger_record
+            ret }
+}
+__declspec(naked) void trace_pass30ds() {
+    __asm { mov edx, 0x130
             mov eax, offset trace_trigger_record
             ret }
 }
@@ -915,12 +960,158 @@ __declspec(naked) void trigger_failure_stub() {
 // The PC VT loader selects terrain by world, but hardcodes the base object
 // index. The staged indices retain base pages and overlay the selected DLC's
 // pages, with unique raw-file codes so overlapping filenames cannot collide.
+// Base worlds get vtex_objects_dlc0.raw.hdr: the base index plus only the DLC pages whose ids the
+// base index doesn't use (taken from the two staged DLC indices). Base textures are unchanged and
+// DLC-only textures exist, so a DLC bike ridden on a base track keeps its frame (the Gecko 520's
+// frame was invisible on base tracks: its pages are DLC-only). Built here from the DLC indices
+// the importer already staged, so players need no new import.
+#pragma pack(push, 1)
+struct VtRow { DWORD page, offset; WORD size; BYTE file; };
+#pragma pack(pop)
+
+bool read_vt_index(const char* path, VtRow** rows, DWORD* count) {
+    HANDLE f = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (f == INVALID_HANDLE_VALUE) return false;
+    DWORD size = GetFileSize(f, nullptr), n = 0, got = 0;
+    bool ok = size >= 4 && ReadFile(f, &n, 4, &got, nullptr) && got == 4 && size == 4 + n * sizeof(VtRow);
+    VtRow* r = ok ? (VtRow*)HeapAlloc(GetProcessHeap(), 0, n * sizeof(VtRow) + 1) : nullptr;
+    ok = r && ReadFile(f, r, n * sizeof(VtRow), &got, nullptr) && got == n * sizeof(VtRow);
+    CloseHandle(f);
+    if (!ok) { if (r) HeapFree(GetProcessHeap(), 0, r); return false; }
+    *rows = r;
+    *count = n;
+    return true;
+}
+
+bool vt_has(const VtRow* rows, DWORD n, DWORD page) {          // rows sorted by page
+    DWORD lo = 0, hi = n;
+    while (lo < hi) {
+        DWORD mid = (lo + hi) / 2;
+        if (rows[mid].page < page) lo = mid + 1; else hi = mid;
+    }
+    return lo < n && rows[lo].page == page;
+}
+
+int vt_compare(const void* a, const void* b) {
+    DWORD x = ((const VtRow*)a)->page, y = ((const VtRow*)b)->page;
+    return x < y ? -1 : x > y;
+}
+
+ULONGLONG file_time(const char* path) {
+    WIN32_FILE_ATTRIBUTE_DATA a;
+    if (!GetFileAttributesExA(path, GetFileExInfoStandard, &a)) return 0;
+    return ((ULONGLONG)a.ftLastWriteTime.dwHighDateTime << 32) | a.ftLastWriteTime.dwLowDateTime;
+}
+
+// dir ends with a backslash. True when vtex_objects_dlc0.raw.hdr is ready to use.
+bool ensure_base_world_index(const char* dir) {
+    static int state;                                  // 0 unknown, 1 ready, 2 unavailable
+    if (state) return state == 1;
+    char base[MAX_PATH], d1[MAX_PATH], d2[MAX_PATH], out[MAX_PATH], tmp[MAX_PATH];
+    sprintf_s(base, "%svtex_objects.raw.hdr", dir);
+    sprintf_s(d1, "%svtex_objects_dlc1.raw.hdr", dir);
+    sprintf_s(d2, "%svtex_objects_dlc2.raw.hdr", dir);
+    sprintf_s(out, "%svtex_objects_dlc0.raw.hdr", dir);
+    sprintf_s(tmp, "%svtex_objects_dlc0.raw.hdr.tmp", dir);
+    ULONGLONG t1 = file_time(d1), t2 = file_time(d2), t0 = file_time(out);
+    if (!t1 && !t2) { state = 2; return false; }       // DLC not imported
+    if (t0 && t0 >= t1 && t0 >= t2 && t0 >= file_time(base)) { state = 1; return true; }
+    VtRow *b = nullptr, *m1 = nullptr, *m2 = nullptr;
+    DWORD nb = 0, n1 = 0, n2 = 0;
+    state = 2;
+    if (!read_vt_index(base, &b, &nb)) return false;
+    if (t1) read_vt_index(d1, &m1, &n1);
+    if (t2) read_vt_index(d2, &m2, &n2);
+    VtRow* all = (VtRow*)HeapAlloc(GetProcessHeap(), 0, (nb + n1 + n2) * sizeof(VtRow) + 1);
+    if (all) {
+        DWORD n = nb, from_dlc = 0;
+        memcpy(all, b, nb * sizeof(VtRow));
+        for (DWORD i = 0; i < n1; i++)
+            if (!vt_has(b, nb, m1[i].page)) { all[n++] = m1[i]; from_dlc++; }
+        for (DWORD i = 0; i < n2; i++)
+            if (!vt_has(b, nb, m2[i].page) && !(m1 && vt_has(m1, n1, m2[i].page))) { all[n++] = m2[i]; from_dlc++; }
+        qsort(all, n, sizeof(VtRow), vt_compare);
+        HANDLE f = CreateFileA(tmp, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, 0, nullptr);
+        DWORD put = 0, put2 = 0;
+        bool ok = f != INVALID_HANDLE_VALUE && WriteFile(f, &n, 4, &put, nullptr)
+               && WriteFile(f, all, n * sizeof(VtRow), &put2, nullptr) && put2 == n * sizeof(VtRow);
+        if (f != INVALID_HANDLE_VALUE) CloseHandle(f);
+        ok = ok && MoveFileExA(tmp, out, MOVEFILE_REPLACE_EXISTING);
+        if (!ok) DeleteFileA(tmp);
+        char line[200];
+        sprintf_s(line, ok ? "dlc texture fix: base-world index written (%lu base + %lu DLC-only pages)"
+                           : "dlc texture fix: could not write the base-world index (%lu + %lu pages)", nb, from_dlc);
+        shim_log(line);
+        if (ok) state = 1;
+        HeapFree(GetProcessHeap(), 0, all);
+    }
+    HeapFree(GetProcessHeap(), 0, b);
+    if (m1) HeapFree(GetProcessHeap(), 0, m1);
+    if (m2) HeapFree(GetProcessHeap(), 0, m2);
+    return state == 1;
+}
+
+// DLC worlds the same way: world N gets vtex_objects_dlcN_all.raw.hdr = its staged index (base +
+// pack N, unchanged) plus the other pack's pages whose ids it doesn't have (only those; nothing
+// that resolves today changes). World 1 lacked 37,819 Riders-of-Doom-only pages and world 2 21,605
+// Origin-of-Pain-only ones; the Gecko 520 kept its wheels but lost its frame on Paine Island tracks
+// while showing it on base tracks, whose dlc0 index already had both packs' pages.
+bool ensure_dlc_world_index(const char* dir, DWORD world) {
+    static int state[3];                               // per world: 0 unknown, 1 ready, 2 unavailable
+    if (world != 1 && world != 2) return false;
+    if (state[world]) return state[world] == 1;
+    char own[MAX_PATH], other[MAX_PATH], out[MAX_PATH], tmp[MAX_PATH];
+    sprintf_s(own, "%svtex_objects_dlc%lu.raw.hdr", dir, world);
+    sprintf_s(other, "%svtex_objects_dlc%lu.raw.hdr", dir, 3 - world);
+    sprintf_s(out, "%svtex_objects_dlc%lu_all.raw.hdr", dir, world);
+    sprintf_s(tmp, "%svtex_objects_dlc%lu_all.raw.hdr.tmp", dir, world);
+    ULONGLONG t_own = file_time(own), t_other = file_time(other), t_out = file_time(out);
+    state[world] = 2;
+    if (!t_own || !t_other) return false;              // one pack not imported: keep its own index
+    if (t_out && t_out >= t_own && t_out >= t_other) { state[world] = 1; return true; }
+    VtRow *a = nullptr, *b = nullptr;
+    DWORD na = 0, nb = 0;
+    if (!read_vt_index(own, &a, &na)) return false;
+    if (!read_vt_index(other, &b, &nb)) { HeapFree(GetProcessHeap(), 0, a); return false; }
+    VtRow* all = (VtRow*)HeapAlloc(GetProcessHeap(), 0, (na + nb) * sizeof(VtRow) + 1);
+    if (all) {
+        DWORD n = na, added = 0;
+        memcpy(all, a, na * sizeof(VtRow));
+        for (DWORD i = 0; i < nb; i++)
+            if (!vt_has(a, na, b[i].page)) { all[n++] = b[i]; added++; }
+        qsort(all, n, sizeof(VtRow), vt_compare);
+        HANDLE f = CreateFileA(tmp, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, 0, nullptr);
+        DWORD put = 0, put2 = 0;
+        bool ok = f != INVALID_HANDLE_VALUE && WriteFile(f, &n, 4, &put, nullptr)
+               && WriteFile(f, all, n * sizeof(VtRow), &put2, nullptr) && put2 == n * sizeof(VtRow);
+        if (f != INVALID_HANDLE_VALUE) CloseHandle(f);
+        ok = ok && MoveFileExA(tmp, out, MOVEFILE_REPLACE_EXISTING);
+        if (!ok) DeleteFileA(tmp);
+        char line[200];
+        sprintf_s(line, ok ? "dlc texture fix: world %lu index written (%lu pages + %lu from the other pack)"
+                           : "dlc texture fix: could not write the world %lu index (%lu + %lu pages)", world, na, added);
+        shim_log(line);
+        if (ok) state[world] = 1;
+        HeapFree(GetProcessHeap(), 0, all);
+    }
+    HeapFree(GetProcessHeap(), 0, a);
+    HeapFree(GetProcessHeap(), 0, b);
+    return state[world] == 1;
+}
+
 void portal_forget_track();
 extern "C" const char* __cdecl dlc_object_index(DWORD world) {
     portal_forget_track();
     g_texture_world = world;
     const char* original = "vtex/vtex_objects.raw.hdr";
-    if (world != 1 && world != 2) return original;
+    if (world != 1 && world != 2) {
+        char dir[MAX_PATH];
+        DWORD n = GetModuleFileNameA(nullptr, dir, MAX_PATH);
+        while (n && dir[n - 1] != '\\') n--;
+        if (!n || n + 40 >= MAX_PATH) return original;
+        sprintf_s(dir + n, MAX_PATH - n, "..\\build\\data\\vtex\\");
+        return ensure_base_world_index(dir) ? "vtex/vtex_objects_dlc0.raw.hdr" : original;
+    }
     const char* selected = world == 1 ? "vtex/vtex_objects_dlc1.raw.hdr"
                                     : "vtex/vtex_objects_dlc2.raw.hdr";
     char path[MAX_PATH];
@@ -928,6 +1119,15 @@ extern "C" const char* __cdecl dlc_object_index(DWORD world) {
     if (!n || n >= MAX_PATH) return original;
     while (n && path[n - 1] != '\\') n--;
     if (!n || n + 70 >= MAX_PATH) return original;
+    sprintf_s(path + n, MAX_PATH - n, "..\\build\\data\\vtex\\");
+    // Test switch: datapack\trials_revive_world_index_own.txt keeps each DLC world on its own index.
+    if (!game_file_exists("trials_revive_world_index_own.txt") && ensure_dlc_world_index(path, world)) {
+        selected = world == 1 ? "vtex/vtex_objects_dlc1_all.raw.hdr" : "vtex/vtex_objects_dlc2_all.raw.hdr";
+        char line[160];
+        sprintf_s(line, "dlc texture fix: world %lu uses %s", world, selected);
+        shim_log(line);
+        return selected;
+    }
     sprintf_s(path + n, MAX_PATH - n, "..\\build\\data\\%s", selected);
     DWORD attr = GetFileAttributesA(path);
     if (attr == INVALID_FILE_ATTRIBUTES || (attr & FILE_ATTRIBUTE_DIRECTORY)) {
@@ -980,6 +1180,9 @@ const DlcNode DLC_NODES[] = {
     {{0x93400eb4, 0xa0ab77c9}, 'd', "vector_operator", "Cbhirrhbfbfbff"},
     {{0xa5c066dd, 0xb7cf0dbc}, 'e', "set_vector", "EiiiihL"},
     {{0xaee65e01, 0x8b49a0d7}, 'f', "switch_filter", "EF"},
+    // Read only (its effect is not implemented). Only 360 custom tracks use it: 15 of them, each
+    // record the event base + u8 + float (01 0001 ffff | 01 | 3f800000), found by the offline walk.
+    {{0xd236eb2a, 0x0e2c8adb}, 'e', "drama", "Ebf"},
 };
 const int DLC_NODE_COUNT = sizeof DLC_NODES / sizeof DLC_NODES[0];
 DWORD g_dlc_vtables[DLC_NODE_COUNT][24];
@@ -1245,6 +1448,192 @@ void start_dlc_nodes() {
                  : "dlc fix: DLC node placeholders skipped (unexpected code)");
 }
 
+// ---- 9. DLC object definitions outside DLC worlds ---------------------------------------------
+// An object definition only gets its type flags ([def+0x50]: trigger, event, datasource, filter,
+// object, ...; bit 13 = has game logic) from Track::loadObjectsFromObjectCollectionCategory
+// (0x49a4b0), which world init (0x4a74c0) runs over the whole collection. On PC the DLC packs are
+// registered after the startup world init, so objectcollection1/2.xml (loaded at the end of the
+// pack loader, 0x6545f0 -> 0x42f3f0) stay flagless until a DLC world is opened. DLC tracks never
+// notice (opening their world re-runs world init); a custom track in a base world does: its DLC
+// objects create no trigger nodes (Mysterium: its pack-1 switch has no record reader, so the next
+// filter read the switch's bytes and the load failed with 0x401) and are not treated as objects
+// (start platforms missing). The 360 loads every installed collection before the first world.
+// After the pack loader has loaded the collections, the same pass is run once over each DLC
+// category ("DLC<n>", the root of objectcollection<n>.xml); base categories are left alone.
+const uintptr_t PACK_COLLECTIONS_CALL = GA(0x6545f0);   // pack loader: call 42F3F0h, ecx = game
+const uintptr_t LOAD_PACK_COLLECTIONS = GA(0x42f3f0);   // GameBase: objectcollection1..256.xml
+const uintptr_t CLASSIFY_CATEGORY = GA(0x49a4b0);       // Track: (category), ret 4; recurses
+const uintptr_t CATEGORY_SUBCATEGORIES = GA(0x4af7e0);  // category: (&iterator) -> first list node
+const uintptr_t OBJECT_COLLECTION = GA(0x1eee614);      // [[..]] = collection = root category
+const uintptr_t DEFINITION_OF = GA(0x786e10);           // collection: (model) -> definition, ret 4
+typedef void(__fastcall* GameFn)(void* self, void* edx);
+typedef void(__fastcall* ClassifyFn)(void* track, void* edx, void* category);
+typedef void*(__fastcall* IteratorFn)(void* category, void* edx, void* out);
+typedef BYTE*(__fastcall* DefinitionFn)(void* collection, void* edx, DWORD model);
+
+void* g_classified[8];
+int g_classified_count;
+
+// List nodes: +4 next, +8 category. Category name: engine string at +0x1c (length +6, text +8).
+bool is_dlc_category(const BYTE* category) {
+    const char* name = *(const char* const*)(category + 0x1c + 8);
+    unsigned len = *(const unsigned short*)(category + 0x1c + 6);
+    if (len < 4 || len > 6 || memcmp(name, "DLC", 3) != 0) return false;
+    for (unsigned i = 3; i < len; i++)
+        if (!isdigit((unsigned char)name[i])) return false;
+    return true;
+}
+
+// The DLC categories below `category` (searched two levels deep), each classified once.
+void classify_dlc_categories(void* track, BYTE* category, int depth, char* names, size_t names_size) {
+    DWORD iterator[4] = {};
+    ((IteratorFn)CATEGORY_SUBCATEGORIES)(category, nullptr, iterator);
+    for (const BYTE* node = (const BYTE*)iterator[0]; node; node = *(const BYTE* const*)(node + 4)) {
+        BYTE* child = *(BYTE* const*)(node + 8);
+        if (!child) continue;
+        if (!is_dlc_category(child)) {
+            if (depth < 1) classify_dlc_categories(track, child, depth + 1, names, names_size);
+            continue;
+        }
+        bool done = false;
+        for (int i = 0; i < g_classified_count; i++) done |= g_classified[i] == child;
+        if (done || g_classified_count == _countof(g_classified)) continue;
+        g_classified[g_classified_count++] = child;
+        ((ClassifyFn)CLASSIFY_CATEGORY)(track, nullptr, child);
+        size_t n = strlen(names);
+        sprintf_s(names + n, names_size - n, "%s%.*s", n ? ", " : "",
+                  (int)*(const unsigned short*)(child + 0x1c + 6), *(const char* const*)(child + 0x1c + 8));
+    }
+}
+
+DWORD definition_flags(void* collection, DWORD model) {
+    BYTE* definition = ((DefinitionFn)DEFINITION_OF)(collection, nullptr, model);
+    return definition ? *(DWORD*)(definition + 0x50) : 0xffffffff;
+}
+
+void __fastcall load_pack_collections_and_classify(void* game, void* edx) {
+    ((GameFn)LOAD_PACK_COLLECTIONS)(game, edx);
+    char line[256], names[96] = "";
+    __try {
+        void* track = *(void**)((BYTE*)game + 0x30);
+        void* manager = *(void**)OBJECT_COLLECTION;
+        void* collection = manager ? *(void**)manager : nullptr;
+        if (!track || !collection) {
+            shim_log("dlc fix: DLC object definitions not classified (no track or collection yet)");
+            return;
+        }
+        classify_dlc_categories(track, (BYTE*)collection, 0, names, sizeof names);
+        // Pack 1 / pack 2 switch_filter: 0x20 = filter, 0x2000 = game logic.
+        sprintf_s(line, "dlc fix: classified DLC object categories [%s]; switch definitions %08lx %08lx",
+                  names, definition_flags(collection, 0xaee65e01), definition_flags(collection, 0x8b49a0d7));
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        sprintf_s(line, "dlc fix: classifying DLC object definitions faulted (%08lx)", GetExceptionCode());
+    }
+    shim_log(line);
+}
+
+// ---- 10. 360 custom tracks built in a DLC world -----------------------------------------------
+// A 360 track made in a DLC world says so in its DLC0 chunk: u32 pack bits (DLC objects), then a
+// byte naming the world it was built in (1 = Paine Island, 2 = Riders of Doom; 1,781 of the 5,825
+// converted tracks). The 360 reads it from the track buffer (TU3 0x823dfbc0, the same 0x13880-byte
+// buffer as PC 0x4b5e80) so the menu can load that world. The PC never switches world for a user
+// track, so these played in whatever world was loaded, normally the base one: the course buried
+// under the base world's hills (TT-Blood Moon) or the start below the base terrain (TT-Plywood
+// Punisher sinks into the floor).
+// The menu's startPlayUserTrack binding (0x6ecb10) hands the running id to the sharing manager at
+// 0x6ecc91 (track with a leaderboard) or 0x6eccc1 (lbIdx -1: every converted track). Before that call: read the track with the game's own loader (0x6643c0, as
+// loadUserTrackSynch does; GameStatePlay reads it again afterwards), decode the start of the body,
+// and when its world differs from the loaded one switch exactly as the menu's loadWorld binding
+// (0x6e3840) does. Tracks from other worlds (DLC0 byte 0, PC tracks) go back to world 0.
+const uintptr_t PLAY_USER_TRACK_CALL = GA(0x6ecc91);   // call 7176B0h, ecx = [game+0x80]
+const uintptr_t PLAY_USER_TRACK_CALL_NO_LB = GA(0x6eccc1);   // the same call when lbIdx is -1
+const uintptr_t PLAY_USER_TRACK = GA(0x7176b0);        // SharingManager: 8 args, running id first; ret 20h
+const uintptr_t USER_TRACK_INFO = GA(0x662640);        // UserTrackManager: (running id) -> entry, ret 4
+const uintptr_t LOAD_USER_TRACK_FILES = GA(0x6643c0);  // UserTrackManager: (running id, 1) -> 0 = ok, ret 8
+const uintptr_t WORLD_LEAVE = GA(0x5dee50);            // [track+0x5ab4]: (1), ret 4
+const uintptr_t TRACK_CLEAR = GA(0x4a98d0);            // track, ret 0
+const uintptr_t WORLD_LOAD = GA(0x4ab1c0);             // track: (world), ret 4 -> world init 0x4a74c0
+const uintptr_t WORLD_SET_AREA = GA(0x483430);         // track: (value) -> [track+0x5b04], ret 4
+typedef void(__fastcall* PlayUserTrackFn)(void* sharing, void* edx, DWORD id, DWORD a1, DWORD a2, DWORD a3,
+                                         DWORD a4, DWORD a5, DWORD a6, DWORD a7);
+typedef BYTE*(__fastcall* UserTrackInfoFn)(void* manager, void* edx, DWORD id);
+typedef int(__fastcall* LoadUserTrackFilesFn)(void* manager, void* edx, DWORD id, DWORD flag);
+typedef void(__fastcall* ThisArgFn)(void* self, void* edx, DWORD arg);
+typedef void(__fastcall* ThisFn)(void* self, void* edx);
+
+// World byte of a track.trk image (magic, 33 header bytes, LZMA props at 37, size, stream at 46),
+// or -1 when the image has no readable DLC0 chunk.
+int track_world(const BYTE* trk, DWORD size) {
+    static const BYTE PC_MAGIC[4] = {0xde, 0xad, 0xba, 0xbe}, X360_MAGIC[4] = {0xca, 0xfe, 0xb0, 0x0b};
+    if (!trk || size < 64 || size > 0x100000) return -1;
+    if (memcmp(trk, PC_MAGIC, 4) != 0 && memcmp(trk, X360_MAGIC, 4) != 0) return -1;
+    BYTE body[512];
+    size_t n = lzma_peek::decode(trk + 37, trk + 46, size - 46, body, sizeof body);
+    for (size_t o = 0; o + 8 <= n;) {
+        DWORD len = (DWORD)body[o + 4] << 24 | (DWORD)body[o + 5] << 16 | (DWORD)body[o + 6] << 8 | body[o + 7];
+        if (memcmp(body + o, "DLC0", 4) == 0) return len >= 5 && o + 8 + 5 <= n ? body[o + 8 + 4] : -1;
+        if (len > n) break;
+        o += 8 + len;
+    }
+    return -1;
+}
+
+void load_user_track_world(DWORD id) {
+    char line[200];
+    BYTE* game = *(BYTE**)GAME_GLOBAL;
+    void* manager = *(void**)(game + 0x88);
+    BYTE* track = *(BYTE**)(game + 0x30);
+    if (!manager || !track) return;
+    const BYTE* data = nullptr;
+    DWORD size = 0;
+    BYTE* entry = ((UserTrackInfoFn)USER_TRACK_INFO)(manager, nullptr, id);
+    if (!entry) {
+        sprintf_s(line, "dlc world: user track %lu not found; world unchanged", id);
+        shim_log(line);
+        return;
+    }
+    const char* source = entry[5] ? "memory" : "file";
+    if (entry[5]) {   // track held in memory (loadUserTrackSynch's first branch)
+        const BYTE* m = *(const BYTE* const*)(entry + 0x28);
+        data = *(const BYTE* const*)(m + 4) + *(const DWORD*)(m + 0xc);
+        size = *(const DWORD*)(m + 8) - *(const DWORD*)(m + 0xc);
+    } else {
+        int result = ((LoadUserTrackFilesFn)LOAD_USER_TRACK_FILES)(manager, nullptr, id, 1);
+        if (result) {
+            sprintf_s(line, "dlc world: user track %lu could not be read ahead (%d); world unchanged", id, result);
+            shim_log(line);
+            return;
+        }
+        const BYTE* loader = *(const BYTE* const*)(game + 0x64);
+        data = loader + 8;
+        size = *(const DWORD*)(loader + 0x13888);
+    }
+    int world = track_world(data, size);
+    DWORD current = *(DWORD*)(track + 0x5b00);
+    bool load = world >= 0 && world <= 2 && (DWORD)world != current;
+    sprintf_s(line, "dlc world: user track %lu (%s, %lu bytes): built in world %d, loaded world %lu%s", id, source,
+              size, world, current, load ? "; loading its world" : world < 0 || world > 2 ? "; no usable DLC0, kept" : "");
+    shim_log(line);
+    if (!load) return;
+    DWORD area = *(DWORD*)(track + 0x5b04);
+    ((ThisArgFn)WORLD_LEAVE)(*(void**)(track + 0x5ab4), nullptr, 1);
+    ((ThisFn)TRACK_CLEAR)(track, nullptr);
+    ((ThisArgFn)WORLD_LOAD)(track, nullptr, (DWORD)world);
+    ((ThisArgFn)WORLD_SET_AREA)(track, nullptr, area);
+}
+
+void __fastcall play_user_track_in_its_world(void* sharing, void* edx, DWORD id, DWORD a1, DWORD a2, DWORD a3,
+                                             DWORD a4, DWORD a5, DWORD a6, DWORD a7) {
+    __try {
+        load_user_track_world(id & 0xffff);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        char line[96];
+        sprintf_s(line, "dlc world: choosing the user track's world faulted (%08lx)", GetExceptionCode());
+        shim_log(line);
+    }
+    ((PlayUserTrackFn)PLAY_USER_TRACK)(sharing, edx, id, a1, a2, a3, a4, a5, a6, a7);
+}
+
 bool dlc_present() {
     char path[MAX_PATH];
     DWORD n = GetModuleFileNameA(nullptr, path, MAX_PATH);
@@ -1258,7 +1647,7 @@ bool dlc_present() {
 }  // namespace
 
 void start_dlc_fixes() {
-    if (!game_build_known() || !dlc_present()) return;
+    if (!game_build_known()) return;
     start_trigger_trace();
     const unsigned char pass28[5] = {0x8b,0x11,0x8b,0x42,0x28};
     const unsigned char pass38[5] = {0x8b,0x11,0x8b,0x42,0x38};
@@ -1266,12 +1655,18 @@ void start_dlc_fixes() {
     if (patch_call(GA(0x6017d7), pass28, 5, (void*)&trace_pass28) &&
         patch_call(GA(0x601818), pass38, 5, (void*)&trace_pass38) &&
         patch_call(GA(0x601859), pass30, 5, (void*)&trace_pass30) &&
-        patch_call(GA(0x601899), pass30, 5, (void*)&trace_pass30))
+        patch_call(GA(0x601899), pass30, 5, (void*)&trace_pass30ds))
         shim_log("TRI all-pass record diagnostics enabled");
     const unsigned char trigger_return[7] = {0x5f, 0x5e, 0x5d, 0x5b, 0x83, 0xc4, 0x0c};
     shim_log(patch_jmp(GA(0x6018b9), trigger_return, 7, (void*)&trigger_failure_stub)
                  ? "trigger failure diagnostics enabled"
                  : "trigger failure diagnostics skipped (unexpected code)");
+    // TRIl is also used by 360 tracks containing only base objects. Their player-state and
+    // impulse-counter extensions must be consumed even on a PC with no DLCContent directory.
+    if (!dlc_present()) {
+        shim_log("360 track v47 readers enabled; DLC asset hooks not needed (no DLCContent)");
+        return;
+    }
     start_selector_fix();
     start_shader_constants_fix();
     start_renderdoc_loader();
@@ -1310,6 +1705,24 @@ void start_dlc_fixes() {
         shim_log("dlc fix: DLC packs' bikes.xml load on first bike lookup");
     else
         shim_log("dlc fix: DLC bikes patch skipped (unexpected code)");
+    unsigned char collections_call[5] = {0xE8};
+    *(int*)(collections_call + 1) = (int)(LOAD_PACK_COLLECTIONS - (PACK_COLLECTIONS_CALL + 5));
+    shim_log(PACK_COLLECTIONS_CALL && LOAD_PACK_COLLECTIONS && CLASSIFY_CATEGORY && CATEGORY_SUBCATEGORIES &&
+                     OBJECT_COLLECTION && DEFINITION_OF &&
+                     patch_call(PACK_COLLECTIONS_CALL, collections_call, 5, (void*)&load_pack_collections_and_classify)
+                 ? "dlc fix: DLC object definitions are classified when the packs load (custom tracks in base worlds)"
+                 : "dlc fix: DLC object classification skipped (unexpected code or address unknown for this build)");
+    unsigned char play_call[5] = {0xE8};
+    *(int*)(play_call + 1) = (int)(PLAY_USER_TRACK - (PLAY_USER_TRACK_CALL + 5));
+    unsigned char play_call_no_lb[5] = {0xE8};
+    *(int*)(play_call_no_lb + 1) = (int)(PLAY_USER_TRACK - (PLAY_USER_TRACK_CALL_NO_LB + 5));
+    shim_log(PLAY_USER_TRACK_CALL && PLAY_USER_TRACK_CALL_NO_LB && PLAY_USER_TRACK && USER_TRACK_INFO &&
+                     LOAD_USER_TRACK_FILES && WORLD_LEAVE && TRACK_CLEAR && WORLD_LOAD && WORLD_SET_AREA &&
+                     code_differs(PLAY_USER_TRACK_CALL, play_call, 5) == 0 &&
+                     patch_call(PLAY_USER_TRACK_CALL_NO_LB, play_call_no_lb, 5, (void*)&play_user_track_in_its_world) &&
+                     patch_call(PLAY_USER_TRACK_CALL, play_call, 5, (void*)&play_user_track_in_its_world)
+                 ? "dlc fix: user tracks load in the world they were built in (DLC0 world byte)"
+                 : "dlc fix: user track world selection skipped (unexpected code or address unknown for this build)");
     shim_log(patch_jmp(UNKNOWN_CHUNK, UNKNOWN_CHUNK_ORIG, 5, (void*)&unknown_chunk_stub)
                  ? "dlc fix: DLC-only track chunks (RET0/EMI1/POR3) are skipped"
                  : "dlc fix: track chunk patch skipped (unexpected code)");

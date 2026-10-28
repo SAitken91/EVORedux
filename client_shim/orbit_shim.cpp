@@ -49,6 +49,7 @@ public:
 using mg::orbitclient::IGetLoginDetailsListener;
 
 void start_ticker_hook();   // ticker_hook.cpp
+void start_ugc_feeds();     // ugc_feeds.cpp
 void start_gamelog_hook();  // gamelog_hook.cpp (opt-in)
 void start_dlc_fixes();     // dlc_fixes.cpp (only with DLCContent)
 
@@ -469,6 +470,7 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID) {
         start_gamelog_hook();
         start_dlc_fixes();
         start_ticker_hook();
+        start_ugc_feeds();
         if (HANDLE t = CreateThread(nullptr, 0, build_probe, nullptr, 0, nullptr)) CloseHandle(t);
     }
     return TRUE;

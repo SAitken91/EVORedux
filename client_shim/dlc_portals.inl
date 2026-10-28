@@ -216,6 +216,7 @@ bool portal_is_neverending(void** owners, DWORD count) {
            object_model(owners[3506]) == 0x42643009;
 }
 
+
 // Pending portal delay holds the whole rigid bike at its entry pose until the
 // authored delay expires. The destination is resolved at commit, after the
 // track's own impulses have positioned the next section and its exit portal.
@@ -284,8 +285,8 @@ void portal_tick() {
     BYTE* bike = *(BYTE**)(track + 0x1bc);
     if (!bike || !*(void**)(bike + 0x4dc)) return;
     bool neverending = portal_is_neverending(owners, count);
-    // The tested implementation covers the attached bike/rider and settings in
-    // Neverending. Other portal modes are left gated until individually verified.
+    // Gateways needs native portal scale, driving-line projection and contact-volume semantics.
+    // Its unscaled sphere approximation teleported too early in the live test; leave it gated.
     if (!neverending) return;
     DWORD tick = *(DWORD*)(track + 0x14);
     if (g_portal_race_tick != 0xffffffff && tick < g_portal_race_tick) portal_reset_race();

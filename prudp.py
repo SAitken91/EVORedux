@@ -9,6 +9,7 @@ Packet layout (verified against captured SYN packets):
     payload
     u8  checksum                 sum-of-access-key based
 """
+import collections
 import json
 import os
 import socket
@@ -163,6 +164,28 @@ class Connection:
         return data[1:]
 
 
+# NAT echo (OnlineSDK NATTraversalEngine, JobGetPublicURL). Before hosting, the game sends
+# small packets from its game socket to the secure server's port to learn its public address:
+# a 14-byte game transport header (71 71 05 00 ... ef be ad de), one message byte, then a
+# checksum byte = sum of all previous bytes. Message 2 = ECHO, answered with message 2 followed
+# by the station URL we saw it from; message 3 = KEEP_ALIVE, needs no answer.
+NAT_MAGIC = b"qq"
+NAT_HEADER_SIZE = 14
+NAT_ECHO, NAT_KEEP_ALIVE = 2, 3
+# Recent NAT packets as (ip, port, time): the outside address of each game socket, which is where
+# other players must connect to reach a session it hosts. Matched to sessions by time (quazal.py).
+NAT_SEEN = collections.deque(maxlen=2000)
+
+
+def nat_echo_reply(data, addr):
+    if len(data) != NAT_HEADER_SIZE + 2 or sum(data[:-1]) & 0xFF != data[-1]:
+        return None
+    if data[NAT_HEADER_SIZE] != NAT_ECHO:
+        return None
+    body = data[:NAT_HEADER_SIZE] + bytes([NAT_ECHO]) + f"udp:/address={addr[0]};port={addr[1]}".encode() + b"\x00"
+    return body + bytes([sum(body) & 0xFF])
+
+
 class PRUDPServer:
     def __init__(self, name, port, vport, on_message, log, on_connect=None, debug=None):
         self.name, self.port, self.vport = name, port, vport
@@ -224,6 +247,13 @@ class PRUDPServer:
         self.log(f"[{self.name}] PRUDP listening on UDP {self.port} (vport {self.vport:02x})")
         while True:
             data, addr = self.sock.recvfrom(65535)
+            if data[:2] == NAT_MAGIC:
+                NAT_SEEN.append((addr[0], addr[1], time.time()))
+                reply = nat_echo_reply(data, addr)
+                if reply:
+                    self.sock.sendto(reply, addr)
+                    self.debug(f"[{self.name}] NAT echo from {addr}")
+                continue
             try:
                 p = Packet.parse(data)
             except Exception as e:

@@ -15,11 +15,13 @@ import logging.handlers
 import os
 import struct
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
 from prudp import PRUDPServer
-from quazal import (QRESULT_NOT_IMPLEMENTED, SERVER_PID, Accounts, SecureConnection,
+from track_library import open_library
+from quazal import (QRESULT_NOT_IMPLEMENTED, SERVER_PID, Accounts, MatchMaking, SecureConnection,
                     TicketGranting, Tracking, Privileges, UbiAccountManagement,
                     TitleStorage, PlayerStats, UserGeneratedContent, UplayWin, UserStorage, rmc_error, secure_on_connect)
 
@@ -82,6 +84,11 @@ class ConfigHandler(BaseHTTPRequestHandler):
                     return self._reply(200, f.read(4096), "text/plain; charset=utf-8")
             except FileNotFoundError:
                 return self._reply(404)
+        if self.path == "/revival/ugc.xml":
+            # Track Central feed list, read by the client shim at startup (ugc_feeds.cpp).
+            if not track_library:
+                return self._reply(404)
+            return self._reply(200, track_library.feeds_document().encode(), "text/xml; charset=utf-8")
         if self.path.startswith("/ugc/content/"):
             data = user_storage.http_download(self.path.rsplit("/", 1)[1])
             return self._reply(200, data) if data is not None else self._reply(404)
@@ -119,17 +126,23 @@ SECURE_URL = f"prudps:/address={HOST_IP};port={SECURE_PORT};CID=1;PID={SERVER_PI
 # Calls whose parameters contain the player's real Ubisoft credentials.
 SENSITIVE_CALLS = {(10, 2), (11, 4)}   # TicketGranting.LoginEx, SecureConnection.RegisterEx
 accounts = Accounts()
-user_storage = UserStorage(accounts, log, HOST_IP)
+# Track Central library (track_library.db, built by tools/build_track_library.py); optional.
+track_library = open_library() if os.environ.get("TRIALS_LIBRARY", "1") != "0" else None
+if track_library:
+    log(f"track library: {len(track_library)} tracks by {len(track_library.creators)} creators")
+user_storage = UserStorage(accounts, log, HOST_IP, track_library)
+secure_connection = SecureConnection(SECURE_URL, log)
 SERVICES = {
     "auth": {TicketGranting.PROTO: TicketGranting(accounts, SECURE_URL, log)},
     "secure": {
-        SecureConnection.PROTO: SecureConnection(SECURE_URL, log),
+        SecureConnection.PROTO: secure_connection,
+        MatchMaking.PROTO: MatchMaking(secure_connection, log, lambda pid: is_online(pid)),
         Tracking.PROTO: Tracking(),
         Privileges.PROTO: Privileges(),
-        UbiAccountManagement.PROTO: UbiAccountManagement(accounts),
+        UbiAccountManagement.PROTO: UbiAccountManagement(accounts, track_library),
         TitleStorage.PROTO: TitleStorage(),
         PlayerStats.PROTO: PlayerStats(accounts, log, user_storage),
-        UserGeneratedContent.PROTO: UserGeneratedContent(accounts, log),
+        UserGeneratedContent.PROTO: UserGeneratedContent(accounts, log, track_library),
         UplayWin.PROTO: UplayWin(),
         UserStorage.PROTO: user_storage,
     },
@@ -169,9 +182,23 @@ def make_handler(name):
     return on_message
 
 
+PRUDP_SERVERS = {}
+ONLINE_TIMEOUT = 90   # seconds without any packet; connected games keep pinging the server
+
+
+def is_online(pid):
+    """True while pid has a secure-server connection that has been heard from recently."""
+    server = PRUDP_SERVERS.get("secure")
+    if server is None:
+        return True
+    now = time.time()
+    return any(c.pid == pid and now - c.last_seen < ONLINE_TIMEOUT for c in list(server.conns.values()))
+
+
 def run_prudp(name, port):
     on_connect = secure_on_connect(log) if name == "secure" else None
-    PRUDPServer(name, port, 0x31, make_handler(name), log, on_connect, debug).serve()
+    server = PRUDP_SERVERS[name] = PRUDPServer(name, port, 0x31, make_handler(name), log, on_connect, debug)
+    server.serve()
 
 
 if __name__ == "__main__":

@@ -3,8 +3,20 @@
 param([switch]$Uninstall)
 
 $ErrorActionPreference = "Stop"
+# Any error this script doesn't handle itself: show it and wait, instead of the window closing.
+trap {
+    Write-Host ""
+    Write-Host "The installer stopped with an error:" -ForegroundColor Red
+    Write-Host ($_ | Out-String) -ForegroundColor Red
+    Read-Host "Press Enter to close"
+    exit 1
+}
 $ServerHost = "40.160.100.239"
 $Here = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+# Join-Path fails on a drive that isn't there (an old Steam library on a removed E: drive, issue #3),
+# so search paths are joined as plain strings and only checked with Test-Path.
+function Join-Text($a, $b) { return [System.IO.Path]::Combine([string]$a, [string]$b) }
 
 function Find-Game {
     $roots = @()
@@ -19,7 +31,7 @@ function Find-Game {
     $libraries = @()
     foreach ($r in ($roots | Select-Object -Unique)) {
         $libraries += $r
-        $vdf = Join-Path $r "steamapps\libraryfolders.vdf"
+        $vdf = Join-Text $r "steamapps\libraryfolders.vdf"
         if (Test-Path -LiteralPath $vdf) {
             foreach ($m in [regex]::Matches((Get-Content -LiteralPath $vdf -Raw), '"path"\s+"([^"]+)"')) {
                 $libraries += $m.Groups[1].Value -replace '\\\\', '\'
@@ -27,7 +39,7 @@ function Find-Game {
         }
     }
     $candidates = @()
-    foreach ($lib in ($libraries | Select-Object -Unique)) { $candidates += Join-Path $lib "steamapps\common\TrialsPC" }
+    foreach ($lib in ($libraries | Select-Object -Unique)) { $candidates += Join-Text $lib "steamapps\common\TrialsPC" }
 
     # Ubisoft Connect: every game it has installed, plus its games folders.
     foreach ($key in "HKLM:\SOFTWARE\WOW6432Node\Ubisoft\Launcher\Installs", "HKLM:\SOFTWARE\Ubisoft\Launcher\Installs") {
@@ -44,7 +56,7 @@ function Find-Game {
     }
     $ubiRoots += "C:\Program Files (x86)\Ubisoft\Ubisoft Game Launcher", "C:\Program Files\Ubisoft\Ubisoft Game Launcher"
     foreach ($u in ($ubiRoots | Where-Object { $_ } | Select-Object -Unique)) {
-        $games = Join-Path $u "games"
+        $games = Join-Text $u "games"
         if (Test-Path -LiteralPath $games) {
             foreach ($d in (Get-ChildItem -LiteralPath $games -Directory -ErrorAction SilentlyContinue)) { $candidates += $d.FullName }
         }
@@ -62,8 +74,8 @@ function Find-Game {
 function Test-GameDir($dir) {
     if (-not $dir) { return $null }
     try {
-        if (Test-Path -LiteralPath (Join-Path $dir "datapack\trialsFMX.exe")) { return $dir }
-        if (Test-Path -LiteralPath (Join-Path $dir "trialsFMX.exe")) { return (Split-Path -Parent $dir) }
+        if (Test-Path -LiteralPath (Join-Text $dir "datapack\trialsFMX.exe")) { return $dir }
+        if (Test-Path -LiteralPath (Join-Text $dir "trialsFMX.exe")) { return (Split-Path -Parent $dir) }
     } catch {}
     return $null
 }

@@ -29,9 +29,11 @@ leaderboards fill up again — let's bring the glory back to them.
 - ✅ **Online login** through the revival server
 - ✅ **Global and per-track leaderboards** for every track in the game
 - ✅ **Ghosts** — upload your best run, download and race other players' ghosts
+- ✅ **Track Central is back in the game** — Get Tracks, search and download over 1,600 Xbox 360
+  community tracks, with screenshots, ratings and the original creators (see
+  [Get Track Central tracks](#get-track-central-tracks))
 - ✅ **Track Central tracks you have installed** are playable, with leaderboards that include
-  thousands of archived historical scores (see [Get Track Central tracks](#get-track-central-tracks)
-  and [Legacy spots](#legacy-spots-the-historical-scores))
+  thousands of archived historical scores (see [Legacy spots](#legacy-spots-the-historical-scores))
 - ✅ Occasional revival messages in the main-menu news ticker
 - ✅ **Xbox 360 DLC packs run on PC** — Origin of Pain and Riders of Doom, including Neverending
   Trials, fire effects and their leaderboards (see [Xbox 360 DLC](#xbox-360-dlc))
@@ -41,8 +43,8 @@ leaderboards fill up again — let's bring the glory back to them.
 The aim is the full online experience, not just part of it:
 
 - 🔜 **Multiplayer** — online races with other players
-- 🔜 **Track Central in full** — browsing, downloading, rating and uploading tracks (over 690
-  community tracks have already been preserved)
+- 🔜 **Track Central in full** — uploading your own tracks, and the Xbox 360 tracks that use DLC
+  objects (about 4,200 more)
 - 🔜 Everything else the original servers did, one piece at a time
 
 Progress is posted here as features come online.
@@ -105,9 +107,15 @@ the server admin to release your name (your scores and ghosts stay attached to i
 
 ## Get Track Central tracks
 
-Browsing and downloading tracks inside the game isn't back yet. Until it is, the community has
-an archive of **about 700 of the best-rated Track Central tracks**, shared by Scruffy McGuffy on
-the Steam forums:
+**In the game:** open Track Central → **Get Tracks**. Over 1,600 Xbox 360 community tracks are
+there to browse (Most Downloaded, Highest Rated, New, RedLynx Picks) or search by track name or
+creator. Download one and it's in your Play Tracks list. This needs EVO Redux v1.5.2 or newer.
+
+Tip: download the tracks you want rather than installing thousands by hand — the Play Tracks page
+loads faster with fewer tracks installed.
+
+**The PC archive:** the community also has an archive of **about 700 of the best-rated PC Track
+Central tracks**, shared by Scruffy McGuffy on the Steam forums:
 
 **[Archive of Track Central tracks (Steam discussion)](https://steamcommunity.com/app/220160/discussions/0/1680315447969304289/)**
 
@@ -184,6 +192,33 @@ like (`client_shim/build.bat`, Visual Studio 2022 C++ workload).
 
 ---
 
+## Tools
+
+Most players only ever need the installer and `IMPORT_DLC.bat`. The rest is here for people who
+want it.
+
+**For players**
+
+| Tool | What it does |
+|---|---|
+| `INSTALL.bat` (release zip) | Installs or updates EVO Redux. Finds Steam and Ubisoft Connect installs. |
+| `IMPORT_DLC.bat` (release zip) | One-click import of the Xbox 360 DLC packs you own (see [Xbox 360 DLC](#xbox-360-dlc)). Run it again after an update to pick up DLC fixes. |
+| `tools/switch_server.bat` | Switches the game between the live server and a local test server. |
+| `tools/x360_tracks.py` | Converts a folder of Xbox 360 custom track packages to PC tracks (Python 3): `python tools/x360_tracks.py <360 tracks> <output>`. Most people don't need it: the same tracks are on Track Central. |
+| `tools/x360_metadata.py`, `tools/x360_thumbnails.py` | Fix 360 tracks converted before v1.5.2 (wrong track ids, missing thumbnails): `python tools/x360_metadata.py <SavedGames>` and `python tools/x360_thumbnails.py <SavedGames>` (Windows). |
+| `tools/dlc_cubemaps.py` | Repairs the shiny DLC surfaces (rainbow reflections) of a DLC imported before v1.5.2, without a full re-import. |
+
+**For server hosts**
+
+| Tool | What it does |
+|---|---|
+| `tools/build_track_library.py` | Builds `track_library.db` (the in-game Track Central library) from tracks converted by `x360_tracks.py`. The server loads it at start; without it Get Tracks is empty. |
+| `tools/rename_player.py` | Sets the name shown for a player on the boards. |
+| `tools/import_history.py`, `tools/gen_boards.py` | Import the archived historical scores; generate the leaderboard sort orders. |
+| `tools/dlc_*.py`, `tools/pak.py`, `tools/stfs_extract.py` | The DLC conversion steps the importer runs, and pak / Xbox package utilities. |
+
+---
+
 ## For developers
 
 | Path | What it is |
@@ -192,7 +227,8 @@ like (`client_shim/build.bat`, Visual Studio 2022 C++ workload).
 | `boards.json` | Leaderboard sort orders, generated from the game's own track list by `tools/gen_boards.py` |
 | `client_shim/` | Source of the player DLL (login protection, server gate, menu ticker) |
 | `player_package/` | What players install |
-| `tools/` | Admin and research tools: name release, historical board import, board generation, and pak/XMem utilities |
+| `track_library.py` | The in-game Track Central library (feeds, search, downloads) served from `track_library.db` |
+| `tools/` | See [Tools](#tools) |
 
 Run a local server with `start_server.bat` (Python 3; set `TRIALS_HOST` to the address players
 connect to). The server creates its own `server_secret.key` and `trials.db` on first start —

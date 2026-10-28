@@ -9,6 +9,8 @@ Conversion, per track:
   - empty both leaderboard caches (keep the 9-byte header, zero counts): the 360's cached
     scores/ghosts made the PC game hang before loading the track
   - add displayname (the track name, from the archive's <creator>\\<track>\\ folder)
+  - thumbnail.thn: JPEG XR -> the PC's JPEG (x360_thumbnails.py; Windows only)
+  - metadata.mda: 360 byte order -> the PC's (x360_metadata.py)
 A report (CSV) lists every track with its DLC needs (DLC0 chunk) and any problem.
 
 Usage: python x360_tracks.py <folder of 360 packages> <output folder> [--limit N]
@@ -23,6 +25,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from stfs_extract import STFS  # noqa: E402
+from x360_thumbnails import convert_folders  # noqa: E402
+import x360_metadata  # noqa: E402
 
 PC_MAGIC, X360_MAGIC = bytes.fromhex('deadbabe'), bytes.fromhex('cafeb00b')
 LBD_EMPTY_TAIL = bytes(12)
@@ -118,6 +122,9 @@ def main():
         rows.append(convert(path, args.output, creator, name))
         if k % 250 == 0:
             print(f'{k}/{len(jobs)}', flush=True)
+    x360_metadata.convert_folders([args.output])
+    done, failed = convert_folders([args.output])
+    print(f'thumbnails: {done} converted to PC format, {failed} failed')
     fields = ['status', 'creator', 'track', 'package', 'magic', 'dlc_objects', 'dlc_bike', 'cache_emptied', 'hash_warning', 'chunks']
     with open(os.path.join(args.output, 'conversion_report.csv'), 'w', newline='', encoding='utf-8') as f:
         w = csv.DictWriter(f, fieldnames=fields, extrasaction='ignore')

@@ -25,8 +25,10 @@ TEXTURE_MAGICS = (b"T3X", b"T4X", b"T5X", b"T6X", b"T7X", b"T8X")
 
 
 def find_xmem_payload(b):
-    """Offset of the 01 flag that precedes an XMem payload ending exactly at end of file."""
-    for o in range(8, min(len(b) - 10, 96)):
+    """Offset of the 01 flag that precedes an XMem payload ending exactly at end of file.
+    Cube maps have a longer header (a 6-face table: the flag sits at byte 120), so the search
+    covers the first 1 KB; the exact-end check keeps it from matching inside a header."""
+    for o in range(8, min(len(b) - 10, 1024)):
         if b[o] != 1:
             continue
         usize, psize = struct.unpack_from("<II", b, o + 1)

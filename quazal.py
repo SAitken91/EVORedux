@@ -3,14 +3,17 @@ import hashlib
 import json
 import hmac
 import os
+import re
 import secrets
+import socket
 import sqlite3
 import struct
 import threading
 import time
 import uuid
 
-from prudp import RC4
+from prudp import NAT_SEEN, RC4
+from track_library import BLOB_ID_BASE, PROP_BLOB_TRACK, TYPE_SHOT_BLOB, TYPE_TRACK_BLOB, blob_content_id
 
 SERVER_PID = 2           # pid of the secure server principal
 
@@ -330,8 +333,8 @@ def is_legacy_board_pid(pid):
 class UbiAccountManagement:
     PROTO = 29
 
-    def __init__(self, accounts):
-        self.accounts = accounts
+    def __init__(self, accounts, library=None):
+        self.accounts, self.library = accounts, library
 
     def _all(self):
         rows = self.accounts.db.execute("SELECT pid, name FROM accounts").fetchall()
@@ -347,7 +350,10 @@ class UbiAccountManagement:
         if method == 11:                       # LookupPrincipalIds(list<ubiId>) -> map<ubiId, pid>
             uids = [r.string() for _ in range(r.u32())]
             hits = [(u, by_uid[u][0]) for u in uids if u in by_uid]
-            hits += [(u, _legacy_by_uid[u]) for u in uids if u in _legacy_by_uid]
+            if self.library:
+                hits += [(u, self.library.creator_by_account_id(u)) for u in uids
+                         if u not in by_uid and self.library.creator_by_account_id(u) is not None]
+            hits += [(u, _legacy_by_uid[u]) for u in uids if u in _legacy_by_uid and u not in by_uid]
             w.u32(len(hits))
             for u, pid in hits:
                 w.string(u).u32(pid)
@@ -355,9 +361,19 @@ class UbiAccountManagement:
             # Only resolve players this server knows. Resolving original-server players (track
             # creators) to placeholder accounts made the client stall loading Track Central and
             # hide every installed track, so unknown PIDs are left out, as the game expects.
+            # Xbox 360 track creators (track library) are answered too: their pids are XUID halves
+            # read from installed 360 tracks, and left unanswered the game re-asks forever and its
+            # full gamertag queue crashes the next lookup. They come before the legacy range, which
+            # some XUID halves fall into.
             pids = list(dict.fromkeys(r.u32() for _ in range(r.u32())))   # map keys must be unique
-            hits = [(p, by_pid[p][1]) for p in pids if p in by_pid]
-            hits += [(p, legacy_account_id(p)) for p in pids if is_legacy_board_pid(p)]
+            hits = []
+            for p in pids:
+                if p in by_pid:
+                    hits.append((p, by_pid[p][1]))
+                elif self.library and self.library.is_creator(p):
+                    hits.append((p, self.library.creator_account_id(p)))
+                elif is_legacy_board_pid(p):
+                    hits.append((p, legacy_account_id(p)))
             w.u32(len(hits))
             for pid, uid in hits:
                 w.u32(pid).string(uid)
@@ -369,6 +385,9 @@ class UbiAccountManagement:
         elif method in (14, 20):               # LookupUsernamesByUbiAccountIDs[Global] -> map<ubiId, name>
             uids = [r.string() for _ in range(r.u32())]
             hits = [(u, self.accounts.display_name(by_uid[u][0])) for u in uids if u in by_uid]
+            if self.library:
+                hits += [(u, self.library.creators[self.library.creator_by_account_id(u)])
+                         for u in uids if u not in by_uid and self.library.creator_by_account_id(u) is not None]
             hits += [(u, legacy_name(u)) for u in uids if u not in by_uid and legacy_name(u)]
             w.u32(len(hits))
             for uid, name in hits:
@@ -577,22 +596,28 @@ class UserGeneratedContent:
       UGCPlayerRank        = UGCPlayerStatSet, u32 rankStatus, u32 rank, u64 displayed score
       UGCLeaderboardResult = u64 trackId, list<UGCPlayerRank>          (method 11 -> list of these)
       UGCStatboardResult   = u64 trackId, list<UGCPlayerStatSet>       (method 12 -> list of these)
-      UGCContent           = u64 id, u32, list<{u32 id, variant}>      (method 4; not served yet)
+      UGCContent           = u64 id, u32 owner pid, list<{u32 id, variant}>                (method 4)
+      UGCContentWithMetadataBlob = u64 id, u32 owner pid, buffer metadata blob, list<property>
+                                                       (methods 13 and 14 -> list of these)
+    Track Central browsing (feeds, search, download) serves the track library (track_library.py).
     """
     PROTO = 101
-    EMPTY_LIST = {1, 14}                      # track searches (lists; verified safe in-game)
+    EMPTY_LIST = {1}                          # (list reply; verified safe in-game)
+    GET_CONTENT, GET_METADATA_BLOB = 4, 5     # (u64 id) -> UGCContent / buffer
+    GET_WITH_BLOBS = 13                       # (list<u64> ids) -> list<UGCContentWithMetadataBlob>
+    QUERY_WITH_BLOBS = 14                     # (u32 query, u32 offset, u32 count, list<property>)
     VOID = {3, 6, 7, 8}                       # publish, download count, rate, report
     WRITE_SCORE = 10                          # (u64 trackId, u64 score, u64 descriptor)
     READ_BY_RANK = 11                         # (u64 trackId, u32 start, u32 count)
     READ_BY_PLAYERS = 12                      # (u64 trackId, list<u32> pids)
     # Track info/blob replies (4, 5, 13) are structs not mapped yet: a placeholder body corrupted
     # the client heap (crash dump: abort in free()), so they get an RMC error, which the game handles.
-    NOT_DECODED = {2, 4, 5, 13}
+    NOT_DECODED = {2}
     QRESULT_UGC_UNAVAILABLE = 0x80010001
     HISTORICAL_DATE = 1512691200.0            # 2017-12-08, when the archived boards were cached
 
-    def __init__(self, accounts, log):
-        self.accounts, self.db, self.log = accounts, accounts.db, log
+    def __init__(self, accounts, log, library=None):
+        self.accounts, self.db, self.log, self.library = accounts, accounts.db, log, library
         # TRIALS_HISTORY=0 serves live runs only (used to isolate client behaviour).
         self.include_history = os.environ.get("TRIALS_HISTORY", "1") != "0"
         self.max_rows = int(os.environ.get("TRIALS_MAX_ROWS", "0"))
@@ -645,8 +670,51 @@ class UserGeneratedContent:
             name = self.accounts.display_name(pid) or f"Player{pid}"
         w.u32(pid).string(name).u64(quazal_datetime(when)).u64(score).u64(desc)
 
+    def _write_content(self, w, row, with_blob):
+        w.u64(row[0]).u32(row[1])
+        if with_blob:
+            w.buffer(self.library.blob(row[0], "metablob") or b"")
+        write_properties(w, self.library.properties(row))
+
+    def _library_reply(self, call_id, method, r):
+        lib = self.library
+        if method == self.QUERY_WITH_BLOBS:
+            query_id, offset, count = r.u32(), r.u32(), r.u32()
+            props = read_properties(r)
+            rows, total = lib.query(query_id, props, offset, count) if lib else ([], 0)
+            self.log(f"[ugc] query {query_id} offset={offset} count={count} props={props} -> {len(rows)}/{total}")
+        elif method == self.GET_WITH_BLOBS:
+            ids = [r.u64() for _ in range(r.u32())]
+            rows = [lib.get(i) for i in ids if lib and lib.get(i)]
+        elif method == self.GET_CONTENT:
+            row = lib.get(r.u64()) if lib else None
+            if row is None:                    # not a library track (e.g. one only on the old server)
+                return rmc_error(self.PROTO, call_id, self.QRESULT_UGC_UNAVAILABLE)
+            w = Writer()
+            self._write_content(w, row, False)
+            return rmc_response(self.PROTO, call_id, method, w.bytes())
+        else:                                  # GET_METADATA_BLOB
+            content_id = r.u64()
+            blob = lib.blob(content_id, "metablob") if lib else None
+            if blob is None:
+                return rmc_error(self.PROTO, call_id, self.QRESULT_UGC_UNAVAILABLE)
+            self.log(f"[ugc] metadata blob {content_id}")
+            return rmc_response(self.PROTO, call_id, method, Writer().buffer(blob).bytes())
+        w = Writer().u32(len(rows))
+        for row in rows:
+            self._write_content(w, row, True)
+        return rmc_response(self.PROTO, call_id, method, w.bytes())
+
     def handle(self, conn, call_id, method, params):
         r = Reader(params)
+        if method in (self.GET_CONTENT, self.GET_METADATA_BLOB, self.GET_WITH_BLOBS, self.QUERY_WITH_BLOBS):
+            try:
+                return self._library_reply(call_id, method, r)
+            except (struct.error, ValueError, IndexError) as e:
+                # A request layout not seen before: log it and answer as "unavailable", which the
+                # game handles (a guessed reply body can corrupt the client heap).
+                self.log(f"[ugc] method {method} request not understood ({e}) params={params.hex()}")
+                return rmc_error(self.PROTO, call_id, self.QRESULT_UGC_UNAVAILABLE)
         if method == self.WRITE_SCORE:
             track_id, score, descriptor = r.u64(), r.u64(), r.u64()
             self.db.execute("INSERT INTO ugc_runs (pid, track_id, score, descriptor, received) "
@@ -760,8 +828,8 @@ class UserStorage:
     VOID = {12, 13, 16, 17, 18, 19, 20, 24}   # like/unlike, favourites, report, play count, stats, tag
     MAX_SIZE = 8 * 1024 * 1024
 
-    def __init__(self, accounts, log, http_host):
-        self.db, self.log, self.http_host = accounts.db, log, http_host
+    def __init__(self, accounts, log, http_host, library=None):
+        self.db, self.log, self.http_host, self.library = accounts.db, log, http_host, library
         self.lock = threading.Lock()
         self.db.execute("CREATE TABLE IF NOT EXISTS user_content (content_id INTEGER PRIMARY KEY, "
                         "type_id INTEGER, pid INTEGER, properties TEXT, data BLOB, created REAL)")
@@ -807,6 +875,11 @@ class UserStorage:
         return True
 
     def http_download(self, token):
+        if token.startswith("lib-") and self.library:          # Track Central library blob (public)
+            try:
+                return self.library.blob_by_storage_id(int(token[4:]))
+            except ValueError:
+                return None
         row = self.db.execute("SELECT data FROM user_content WHERE token=?", (token,)).fetchone()
         return row[0] if row else None
 
@@ -832,13 +905,25 @@ class UserStorage:
         w.u32(tid).u64(cid).u32(pid)        # UserContent { m_key{typeID, contentID}, m_pid, m_properties }
         write_properties(w, props)
 
+    def _library_rows(self, type_id, params):
+        """Track / screenshot blobs of Track Central library tracks, found by property 101."""
+        rows = []
+        for pid, _, value in params:
+            track = self.library.get(value) if pid == PROP_BLOB_TRACK else None
+            if track:
+                rows.append((blob_content_id(value, type_id), type_id, track[1], [(PROP_BLOB_TRACK, 6, value)]))
+        return rows
+
     def _search(self, r, method):
         pids = None
         if method in (self.BY_PLAYERS, self.BY_PLAYERS_WITH_TOTAL):
             pids = {r.u32() for _ in range(r.u32())}
         type_id, query_id, offset, size = r.u32(), r.u32(), r.u32(), r.u32()
         params = read_properties(r)
-        rows = self._content_rows(type_id, params, pids)
+        if type_id in (TYPE_TRACK_BLOB, TYPE_SHOT_BLOB) and self.library:
+            rows = self._library_rows(type_id, params)
+        else:
+            rows = self._content_rows(type_id, params, pids)
         page = rows[offset:offset + size] if size else rows[offset:]
         w = Writer().u32(len(page))
         for row in page:
@@ -846,6 +931,18 @@ class UserStorage:
         if method in (self.SEARCH_WITH_TOTAL, self.BY_PLAYERS_WITH_TOTAL):
             w.u32(len(rows))
         self.log(f"[storage] search type={type_id:#x} query={query_id} params={params} -> {len(page)}/{len(rows)}")
+        return w.bytes()
+
+    def _library_item(self, method, type_id, content_id):
+        if method == self.GET_CONTENT_URL:
+            self.log(f"[storage] library blob url track={(content_id - BLOB_ID_BASE) // 4}")
+            return Writer().string("http://").string(self.http_host).string(f"/ugc/content/lib-{content_id}").bytes()
+        if method == self.GET_CONTENT_DB:
+            return Writer().buffer(self.library.blob_by_storage_id(content_id) or b"").bytes()
+        track_id = (content_id - BLOB_ID_BASE) // 4                     # GET_META_DATA
+        track = self.library.get(track_id) if self.library else None
+        w = Writer()
+        self._write_content(w, content_id, type_id, track[1] if track else 0, [(PROP_BLOB_TRACK, 6, track_id)])
         return w.bytes()
 
     def handle(self, conn, call_id, method, params):
@@ -897,6 +994,8 @@ class UserStorage:
 
         if method in (self.GET_CONTENT_URL, self.GET_CONTENT_DB, self.GET_META_DATA, self.DELETE):
             type_id, content_id = r.u32(), r.u64()
+            if content_id >= BLOB_ID_BASE and method != self.DELETE:
+                return rmc_response(self.PROTO, call_id, method, self._library_item(method, type_id, content_id))
             if method == self.GET_CONTENT_URL:
                 row = self.db.execute("SELECT token FROM user_content WHERE content_id=?", (content_id,)).fetchone()
                 token = row[0] if row else "missing"
@@ -961,6 +1060,313 @@ class Privileges:
                 w.u32(pid).u32(pid).string("")     # map key, Privilege.m_ID, m_description
             return rmc_response(self.PROTO, call_id, method, w.bytes())
         return None   # unknown method: deferred by the dispatcher
+
+
+def local_network_ip():
+    """This PC's own network address (no packet is sent), for sessions hosted on the server's PC."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("192.0.2.1", 9))   # TEST-NET address: only picks the outgoing interface
+            return s.getsockname()[0]
+    except OSError:
+        return None
+
+
+# ---- MatchMaking (protocol 21): multiplayer game sessions ("gatherings") ------------
+
+class MatchMaking:
+    """Quazal Rendez-Vous MatchMaking. Sessions live in memory only (they end with the server).
+
+    A gathering arrives as AnyDataHolder: string type name, u32 total length, u32 data length,
+    then the object. Base Gathering = u32 id, u32 owner pid, u32 host pid, u16 min players,
+    u16 max players, u32 participation policy, u32 policy argument, u32 flags, u32 state,
+    string description; subclasses append their own fields, which are kept and echoed as sent.
+    """
+    PROTO = 21
+    REGISTER, UNREGISTER, UNREGISTER_MANY, UPDATE = 1, 2, 3, 4
+    PARTICIPATE, CANCEL_PARTICIPATION, GET_PARTICIPANTS = 11, 12, 13
+    GET_PARTICIPANTS_URLS = 16
+    FIND_BY_TYPE, FIND_BY_DESCRIPTION, FIND_BY_ID, FIND_BY_SINGLE_ID, FIND_BY_OWNER = 17, 18, 20, 21, 22
+    FIND_BY_SQL_QUERY = 25                     # (string where-clause, ResultRange) -> list<any>
+    LAUNCH_SESSION, UPDATE_SESSION_URL, GET_SESSION_URL, GET_STATE, SET_STATE = 26, 27, 28, 29, 30
+    DELETE_GATHERING, FIND_BY_DESCRIPTION_LIKE = 33, 37
+    REGISTER_LOCAL_URL, REGISTER_LOCAL_URLS = 38, 39   # (gid, url) / (gid, list<url>) -> nothing
+    UPDATE_SESSION_HOST = 40                            # (gid) -> nothing
+    GET_SESSION_URLS = 41
+
+    def __init__(self, registry, log, is_online=None):
+        self.registry, self.log = registry, log   # SecureConnection: pid -> public station URLs
+        # The game doesn't unregister when a player backs out, quits or crashes: sessions whose
+        # owner is no longer connected are dropped before every search.
+        self.is_online = is_online or (lambda pid: True)
+        self.lock = threading.Lock()
+        self.gatherings = {}                      # id -> dict
+        self.next_id = 0x1000
+        # Development aid (TRIALS_TEST_BOT=1, local testing only): an always-open Quick Match
+        # session owned by a bot, so one player can see what the game does when joining.
+        if os.environ.get("TRIALS_TEST_BOT") == "1":
+            self.gatherings[0xB07] = {
+                "type": "Gathering", "id": 0xB07, "owner": self.BOT_PID, "host": self.BOT_PID,
+                "min": 1, "max": 4, "policy": 1, "policy_arg": 0, "flags": 0, "state": 0,
+                "description": "ModeQuickMatch", "extra": b"", "participants": [self.BOT_PID],
+                "session_url": "udp:/address=127.0.0.1;port=3051", "open_at": 0}
+            self.log("[mm] test bot session 0xb07 is open")
+
+    BOT_PID = 999
+    # A session appears in searches only once its host can admit players: the host registers it,
+    # spends ~3 s on setup (public-URL probe), then calls UpdateSessionHost and opens. A player who
+    # connects earlier is rejected ("admission denied ... status=closed") and gives up.
+    OPEN_DELAY = 1.0
+
+    # -- encoding --
+    @staticmethod
+    def _read_any(r):
+        type_name = r.string()
+        r.u32()                                    # total length (data length + 4)
+        data = r.take(r.u32())
+        g = Reader(data)
+        fields = {"type": type_name, "id": g.u32(), "owner": g.u32(), "host": g.u32(),
+                  "min": g.u16(), "max": g.u16(), "policy": g.u32(), "policy_arg": g.u32(),
+                  "flags": g.u32(), "state": g.u32(), "description": g.string()}
+        fields["extra"] = g.rest()                 # subclass fields
+        return fields
+
+    @staticmethod
+    def _write_any(w, g):
+        body = (Writer().u32(g["id"]).u32(g["owner"]).u32(g["host"]).u16(g["min"]).u16(g["max"])
+                .u32(g["policy"]).u32(g["policy_arg"]).u32(g["flags"]).u32(g["state"])
+                .string(g["description"]).raw(g["extra"]).bytes())
+        w.string(g["type"]).u32(len(body) + 4).buffer(body)
+
+    def _reply(self, call_id, method, w):
+        return rmc_response(self.PROTO, call_id, method, w.bytes())
+
+    def _write_list(self, w, gatherings):
+        w.u32(len(gatherings))
+        for g in gatherings:
+            self._write_any(w, g)
+        return w
+
+    def _urls_of(self, g):
+        """Where joining players connect (FinishedFindSession at 0x8e06a0 takes address and port of
+        the first URL, adds channel 1). Prefer what the host registered for the session; otherwise
+        the outside address of the host's game socket, seen in its NAT echo packets."""
+        registered = [u for u in g.get("local_urls", []) if "address=" in u]   # not "prudp:/RVCID=n"
+        if registered:
+            return registered
+        if g.get("session_url"):
+            return [g["session_url"]]
+        entry = self.registry.registry.get(g["host"])
+        host_ip = None
+        if entry and entry["urls"]:
+            m = re.search(r"address=([^;]+)", entry["urls"][0])
+            host_ip = m.group(1) if m else None
+        if host_ip and not g.get("game_endpoint"):
+            # The host's game sends its NAT probes right after registering the session; the first
+            # one from its IP after that is its game socket (two players behind one IP stay apart).
+            created = g.get("created", 0)
+            for ip, port, when in list(NAT_SEEN):
+                if ip == host_ip and created - 0.2 <= when <= created + 30:
+                    g["game_endpoint"] = (ip, port)
+                    break
+        if g.get("game_endpoint"):
+            ip, port = g["game_endpoint"]
+            if ip.startswith("127."):
+                # Local testing: the game refuses to connect to 127.0.0.1 (connectToHost 0x8f6f70
+                # treats it as "no host"), so name this PC by its network address instead.
+                ip = local_network_ip() or ip
+            return [f"prudp:/address={ip};port={port}"]
+        return list(entry["urls"]) if entry else []
+
+    # FindBySQLQuery: the game sends a WHERE clause such as
+    #   WHERE type = 'Gathering' AND description = 'ModeQuickMatch' AND state = 0 ORDER BY id DESC
+    # Supported: field = / <> / < / <= / > / >= value, joined by AND, plus ORDER BY field [ASC|DESC].
+    SQL_FIELDS = {"type": "type", "description": "description", "state": "state", "id": "id",
+                  "owner": "owner", "ownerpid": "owner", "host": "host", "hostpid": "host", "flags": "flags",
+                  "minparticipants": "min", "maxparticipants": "max",
+                  "participationpolicy": "policy", "policyargument": "policy_arg"}
+    SQL_CONDITION = re.compile(r"^\s*(\w+)\s*(=|<>|!=|<=|>=|<|>)\s*('(?:[^']|'')*'|-?\d+)\s*$")
+    SQL_OPS = {"=": lambda a, b: a == b, "<>": lambda a, b: a != b, "!=": lambda a, b: a != b,
+               "<": lambda a, b: a < b, "<=": lambda a, b: a <= b, ">": lambda a, b: a > b,
+               ">=": lambda a, b: a >= b}
+
+    def _sql_find(self, query):
+        text = query.strip()
+        order_field, descending = "id", False
+        m = re.search(r"\s+ORDER\s+BY\s+(\w+)(?:\s+(ASC|DESC))?\s*$", text, re.I)
+        if m:
+            order_field = self.SQL_FIELDS.get(m.group(1).lower(), "id")
+            descending = (m.group(2) or "").upper() == "DESC"
+            text = text[:m.start()]
+        text = re.sub(r"^\s*WHERE\s+", "", text, flags=re.I)
+        conditions = []
+        for part in re.split(r"\s+AND\s+", text, flags=re.I) if text.strip() else []:
+            c = self.SQL_CONDITION.match(part)
+            field = self.SQL_FIELDS.get(c.group(1).lower()) if c else None
+            if not field:
+                self.log(f"[mm] sql condition not understood, query ignored: {part!r}")
+                return []
+            value = c.group(3)
+            value = value[1:-1].replace("''", "'") if value.startswith("'") else int(value)
+            conditions.append((field, self.SQL_OPS[c.group(2)], value))
+        own = any(f == "owner" for f, _, _ in conditions)   # "my sessions" queries see unopened ones
+        now = time.time()
+        found = [g for g in self.gatherings.values()
+                 if (own or g.get("open_at", now + 1) <= now)
+                 and all(type(g[f]) is type(v) and op(g[f], v) for f, op, v in conditions)]
+        return sorted(found, key=lambda g: g[order_field], reverse=descending)
+
+    def _sweep(self):
+        for gid in [gid for gid, g in self.gatherings.items()
+                    if g["owner"] != self.BOT_PID and not self.is_online(g["owner"])]:
+            self._drop(gid, f"owner pid {self.gatherings[gid]['owner']} went offline")
+
+    def _drop(self, gid, why):
+        g = self.gatherings.pop(gid, None)
+        if g:
+            self.log(f"[mm] gathering {gid:#x} removed ({why})")
+        return g is not None
+
+    # -- dispatch --
+    def handle(self, conn, call_id, method, params):
+        r = Reader(params)
+        pid = conn.pid
+        with self.lock:
+            self._sweep()
+            if method == self.REGISTER:
+                g = self._read_any(r)
+                gid, self.next_id = self.next_id, self.next_id + 1
+                g.update(id=gid, owner=pid, host=pid, participants=[], session_url="", created=time.time())
+                self.gatherings[gid] = g
+                self.log(f"[mm] register {g['type']} {gid:#x} by pid {pid}: '{g['description']}' "
+                         f"{g['min']}-{g['max']} players, policy {g['policy']}/{g['policy_arg']} "
+                         f"flags {g['flags']:#x} extra={g['extra'].hex()}")
+                return self._reply(call_id, method, Writer().u32(gid))
+            if method == self.UNREGISTER or method == self.DELETE_GATHERING:
+                return self._reply(call_id, method, Writer().u8(int(self._drop(r.u32(), f"by pid {pid}"))))
+            if method == self.UNREGISTER_MANY:
+                ids = [r.u32() for _ in range(r.u32())]
+                for gid in ids:
+                    self._drop(gid, f"by pid {pid}")
+                return self._reply(call_id, method, Writer().u8(1))
+            if method == self.UPDATE:
+                new = self._read_any(r)
+                g = self.gatherings.get(new["id"])
+                if g:
+                    for k in ("min", "max", "policy", "policy_arg", "flags", "state", "description", "extra"):
+                        g[k] = new[k]
+                    self.log(f"[mm] update {new['id']:#x}: state {g['state']} flags {g['flags']:#x} extra={g['extra'].hex()}")
+                return self._reply(call_id, method, Writer().u8(int(g is not None)))
+            if method in (self.PARTICIPATE, self.CANCEL_PARTICIPATION):
+                gid, _message = r.u32(), r.string()
+                g = self.gatherings.get(gid)
+                if g:
+                    if method == self.PARTICIPATE and pid not in g["participants"]:
+                        g["participants"].append(pid)
+                    elif method == self.CANCEL_PARTICIPATION and pid in g["participants"]:
+                        g["participants"].remove(pid)
+                    self.log(f"[mm] {'join' if method == self.PARTICIPATE else 'leave'} {gid:#x} pid {pid}: {g['participants']}")
+                return self._reply(call_id, method, Writer().u8(int(g is not None)))
+            if method == self.GET_PARTICIPANTS:
+                g = self.gatherings.get(r.u32())
+                parts = g["participants"] if g else []
+                w = Writer().u32(len(parts))
+                for p in parts:
+                    w.u32(p)
+                return self._reply(call_id, method, w)
+            if method == self.GET_PARTICIPANTS_URLS:
+                g = self.gatherings.get(r.u32())
+                urls = []
+                for p in (g["participants"] if g else []):
+                    entry = self.registry.registry.get(p)
+                    urls += entry["urls"] if entry else []
+                w = Writer().u32(len(urls))
+                for u in urls:
+                    w.string(u)
+                return self._reply(call_id, method, w)
+            if method in (self.FIND_BY_TYPE, self.FIND_BY_DESCRIPTION, self.FIND_BY_DESCRIPTION_LIKE):
+                key = r.string()
+                offset, size = r.u32(), r.u32()
+                if method == self.FIND_BY_TYPE:
+                    found = [g for g in self.gatherings.values() if g["type"] == key]
+                elif method == self.FIND_BY_DESCRIPTION:
+                    found = [g for g in self.gatherings.values() if g["description"] == key]
+                else:                                   # SQL LIKE: % and _ wildcards
+                    pattern = "^" + re.escape(key).replace("%", ".*").replace("_", ".") + "$"
+                    found = [g for g in self.gatherings.values() if re.match(pattern, g["description"])]
+                found = found[offset:offset + size] if size != 0xFFFFFFFF else found[offset:]
+                self.log(f"[mm] find method {method} '{key}' by pid {pid} -> {len(found)}")
+                return self._reply(call_id, method, self._write_list(Writer(), found))
+            if method == self.FIND_BY_SQL_QUERY:
+                query = r.string()
+                offset, size = r.u32(), r.u32()
+                found = self._sql_find(query)
+                found = found[offset:offset + size]
+                self.log(f"[mm] sql find by pid {pid}: {query!r} -> {len(found)}")
+                return self._reply(call_id, method, self._write_list(Writer(), found))
+            if method == self.FIND_BY_ID:
+                ids = [r.u32() for _ in range(r.u32())]
+                return self._reply(call_id, method, self._write_list(
+                    Writer(), [self.gatherings[i] for i in ids if i in self.gatherings]))
+            if method == self.FIND_BY_SINGLE_ID:
+                g = self.gatherings.get(r.u32())
+                w = Writer().u8(int(g is not None))
+                if g:
+                    self._write_any(w, g)
+                else:
+                    w.string("Gathering").u32(4).u32(0)   # empty holder
+                return self._reply(call_id, method, w)
+            if method == self.FIND_BY_OWNER:
+                owner, offset, size = r.u32(), r.u32(), r.u32()
+                found = [g for g in self.gatherings.values() if g["owner"] == owner]
+                return self._reply(call_id, method, self._write_list(Writer(), found[offset:offset + size]))
+            if method in (self.LAUNCH_SESSION, self.UPDATE_SESSION_URL):
+                gid, url = r.u32(), r.string()
+                g = self.gatherings.get(gid)
+                if g:
+                    # Same rule as SecureConnection: share the address we see, not the LAN one.
+                    g["session_url"] = public_station_url(url, conn.addr) if "address=" in url else url
+                    self.log(f"[mm] session url {gid:#x} by pid {pid}: {g['session_url']}")
+                return self._reply(call_id, method, Writer().u8(int(g is not None)))
+            if method == self.GET_SESSION_URL:
+                g = self.gatherings.get(r.u32())
+                urls = self._urls_of(g) if g else []
+                return self._reply(call_id, method, Writer().u8(int(bool(urls))).string(urls[0] if urls else ""))
+            if method == self.GET_SESSION_URLS:
+                g = self.gatherings.get(r.u32())
+                urls = self._urls_of(g) if g else []
+                w = Writer().u32(len(urls))
+                for u in urls:
+                    w.string(u)
+                return self._reply(call_id, method, w)
+            if method in (self.REGISTER_LOCAL_URL, self.REGISTER_LOCAL_URLS):
+                gid = r.u32()
+                urls = [r.string()] if method == self.REGISTER_LOCAL_URL else [r.string() for _ in range(r.u32())]
+                g = self.gatherings.get(gid)
+                if g:
+                    g["local_urls"] = urls   # the host's own view; other players get the public one
+                self.log(f"[mm] local urls {gid:#x} by pid {pid}: {len(urls)}")
+                return self._reply(call_id, method, Writer())
+            if method == self.UPDATE_SESSION_HOST:
+                g = self.gatherings.get(r.u32())
+                if g:
+                    g["host"] = pid
+                    # The host's last setup step; it opens the session right after this.
+                    g["open_at"] = time.time() + self.OPEN_DELAY
+                    self.log(f"[mm] session host {g['id']:#x} -> pid {pid}")
+                return self._reply(call_id, method, Writer())
+            if method == self.GET_STATE:
+                g = self.gatherings.get(r.u32())
+                return self._reply(call_id, method, Writer().u8(int(g is not None)).u32(g["state"] if g else 0))
+            if method == self.SET_STATE:
+                gid, state = r.u32(), r.u32()
+                g = self.gatherings.get(gid)
+                if g:
+                    g["state"] = state
+                    self.log(f"[mm] state {gid:#x} -> {state}")
+                return self._reply(call_id, method, Writer().u8(int(g is not None)))
+        self.log(f"[mm] method {method} not handled yet params={params.hex()}")
+        return None   # deferred by the dispatcher
 
 
 # ---- Secure server connect + SecureConnection (protocol 11) --------------------

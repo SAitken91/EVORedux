@@ -369,6 +369,10 @@ DWORD WINAPI ticker_thread(LPVOID) {
 
 }  // namespace
 
+bool read_online_config_host(wchar_t* host, int size) {
+    return read_host(host, size);
+}
+
 void start_ticker_hook() {
     HANDLE t = CreateThread(nullptr, 0, ticker_thread, nullptr, 0, nullptr);
     if (t) CloseHandle(t);
