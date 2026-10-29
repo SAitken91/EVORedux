@@ -20,6 +20,7 @@ folder next to this tool's folder is searched for package files.
 import argparse
 import os
 import shutil
+import subprocess
 import sys
 import time
 
@@ -293,6 +294,71 @@ def install(folder, staged, game):
     step(f"{folder}: installed to {target}")
 
 
+def replace_pak(pak, build):
+    """build(source, output) -> True when it wrote output; swaps it in place of pak."""
+    tmp = pak + ".tmp"
+    try:
+        if build(pak, tmp):
+            os.replace(tmp, pak)
+            return True
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+    return False
+
+
+def restore_cut_items(game):
+    configs = os.path.join(game, "datapack", "DLCContent", "OriginofPain", "data", "configs.pak")
+    if not os.path.exists(configs):
+        return
+    step("restoring the cut Origin of Pain riding shorts")
+    import dlc_restore_cut_items
+    replace_pak(configs, dlc_restore_cut_items.main)
+
+
+def have_numpy():
+    try:
+        import numpy  # noqa: F401
+        return True
+    except ImportError:
+        pass
+    step("installing numpy for the DLC ground (python -m pip install --user numpy)")
+    if subprocess.run([sys.executable, "-m", "pip", "install", "--user", "numpy"]).returncode:
+        return False
+    import importlib
+    import site
+    site.addsitedir(site.getusersitepackages())
+    importlib.invalidate_caches()
+    try:
+        import numpy  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def paint_dlc_ground(game):
+    """The 360 base ground layer, baked into the DLC terrain decals (dlc_terrain_base), then its
+    materials taken out of the tiled atlas so the PC keeps their textures (dlc_untile_terrain).
+    Bake first: it reads the layer order from the tiledAtlas values the second step clears."""
+    if not have_numpy():
+        step("numpy is not available: skipped the DLC base ground layer (the DLC ground stays plain). "
+             "Install numpy (python -m pip install numpy) and run the importer again to add it.")
+        return
+    step("painting the DLC worlds' base ground layer")
+    import dlc_terrain_base
+    dlc_terrain_base.main(game)
+    import dlc_untile_terrain
+    for pack, world in (("OriginofPain", 1), ("RidersofDoom", 2)):
+        pak = os.path.join(game, "datapack", "DLCContent", pack, "data", "data.pak")
+        if not os.path.exists(pak):
+            continue
+        step(f"{pack}: base ground layer materials use the decal atlas")
+        try:
+            replace_pak(pak, lambda src, out: dlc_untile_terrain.main(src, out, world) or True)
+        except SystemExit as e:                         # already untiled
+            step(f"{pack}: {e}")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--game", help="Trials Evolution Gold folder (the one holding datapack and build)")
@@ -357,6 +423,16 @@ def main():
     sys.argv = ["dlc_object_index.py", game, os.path.join(game, "build", "data", "vtex")]
     import dlc_object_index
     dlc_object_index.main()
+    step("keeping Gold Edition bonus gear separate from the Xbox texture atlas")
+    from pathlib import Path
+    import dlc_pc_gear
+    gear_stage = Path(work) / "pc_gear"
+    dlc_pc_gear.stage(Path(game), gear_stage)
+    if game_running():
+        raise SystemExit("Trials Evolution is running. Close it before finishing the texture repair.")
+    dlc_pc_gear.install(Path(game), gear_stage)
+    restore_cut_items(game)
+    paint_dlc_ground(game)
     if not args.keep_work:
         shutil.rmtree(work, ignore_errors=True)
     step("all done - start the game and look for the DLC events on the world map")

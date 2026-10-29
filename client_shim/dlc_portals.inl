@@ -31,6 +31,8 @@ DWORD g_portal_race_tick = 0xffffffff;
 int g_portal_pending = -1;
 DWORD g_portal_pending_tick;
 float g_portal_pending_center[3];
+bool g_portal_gateways;
+void portal_cancel_gateways();
 
 bool portal_model(DWORD model) { return model == 0x00ac7639 || model == 0xb2af645d; }
 
@@ -44,6 +46,8 @@ void portal_log(const char* line) {
 DWORD be32(const BYTE* p) { return (DWORD)p[0] << 24 | (DWORD)p[1] << 16 | (DWORD)p[2] << 8 | p[3]; }
 
 void portal_forget_track() {
+    // Track teardown owns destruction of the old bike. Do not dereference it here.
+    portal_cancel_gateways();
     g_portal_count = 0;
     g_portal_objects = nullptr;
     g_portal_track = nullptr;
@@ -216,6 +220,7 @@ bool portal_is_neverending(void** owners, DWORD count) {
            object_model(owners[3506]) == 0x42643009;
 }
 
+#include "dlc_gateways.inl"
 
 // Pending portal delay holds the whole rigid bike at its entry pose until the
 // authored delay expires. The destination is resolved at commit, after the
@@ -224,6 +229,7 @@ void portal_reset_race() {
     for (unsigned i = 0; i < g_portal_count; ++i) g_portals[i].enabled = g_portals[i].flags[0] != 0;
     g_portal_pending = -1;
     g_portal_cooldown = 0;
+    portal_cancel_gateways();
     portal_reset_hits();
 }
 
@@ -235,25 +241,38 @@ bool portal_complete_warp(BYTE* bike, DlcPortal& q) {
     if (!portal_bike_center(bike, center)) return false;
     ((float*(__fastcall*)(void*, void*, float*))GA(0x7d7850))(q.owner, nullptr, from_quat);
     ((float*(__fastcall*)(void*, void*, float*))GA(0x7d7850))(q.target, nullptr, to_quat);
+    if (g_portal_gateways) {
+        gateways_pose(bike,q,source,from_quat);
+        for (unsigned i=0;i<g_portal_count;++i)
+            if (g_portals[i].owner==q.target) { gateways_pose(bike,g_portals[i],destination,to_quat); break; }
+    }
     portal_exit_rotation(bike, from_quat, to_quat, q.flags[7] != 0, delta);
     if (q.flags[2]) { // Preserve Relative Position
-        float inverse[4] = {-from_quat[0],-from_quat[1],-from_quat[2],from_quat[3]};
         float relative[3], local[3], rotated[3];
         for (unsigned k = 0; k < 3; ++k) relative[k] = center[k] - source[k];
-        portal_native_rotate(inverse, relative, local);
         const BYTE* src_node = *(BYTE**)((BYTE*)q.owner + 0x24);
         const BYTE* dst_node = *(BYTE**)((BYTE*)q.target + 0x24);
         float src_scale = src_node ? *(float*)(src_node + 0x24) : 1.0f;
         float dst_scale = dst_node ? *(float*)(dst_node + 0x24) : 1.0f;
         if (!(src_scale > 0.0001f) || !(dst_scale > 0.0001f)) return false;
-        for (unsigned k = 0; k < 3; ++k) local[k] *= dst_scale / src_scale;
-        portal_native_rotate(to_quat, local, rotated);
+        if (g_portal_gateways) {
+            // TU3 8254f634..8254f720 rotates the captured world-space offset
+            // by the bike's warp delta (also when PreserveOrientation is off).
+            for (unsigned k = 0; k < 3; ++k) local[k] = g_gateways_relative[k] * dst_scale / src_scale;
+            portal_native_rotate(delta, local, rotated);
+        } else {
+            const float inverse[4] = {-from_quat[0],-from_quat[1],-from_quat[2],from_quat[3]};
+            portal_native_rotate(inverse, relative, local);
+            for (unsigned k = 0; k < 3; ++k) local[k] *= dst_scale / src_scale;
+            portal_native_rotate(to_quat, local, rotated);
+        }
         for (unsigned k = 0; k < 3; ++k) destination[k] += rotated[k];
     }
     const float axis[3] = {1,0,0};
     float forward[3]; portal_native_rotate(to_quat, axis, forward);
     if (!portal_warp_bike_physics(bike, destination, delta, forward, q.flags[3] != 0, q.flags[6] != 0)) return false;
     float after[3]; portal_bike_center(bike, after);
+    if (g_portal_gateways && q.flags[4]) gateways_camera_warp(center,after);
     char line[260];
     sprintf_s(line, "PHYSICS TELEPORT %u -> %u: center (%.2f,%.2f,%.2f) -> (%.2f,%.2f,%.2f) target (%.2f,%.2f,%.2f)",
         q.index, q.target_index, center[0],center[1],center[2],after[0],after[1],after[2],
@@ -285,12 +304,12 @@ void portal_tick() {
     BYTE* bike = *(BYTE**)(track + 0x1bc);
     if (!bike || !*(void**)(bike + 0x4dc)) return;
     bool neverending = portal_is_neverending(owners, count);
-    // Gateways needs native portal scale, driving-line projection and contact-volume semantics.
-    // Its unscaled sphere approximation teleported too early in the live test; leave it gated.
-    if (!neverending) return;
+    g_portal_gateways = portal_is_gateways();
+    if (!neverending && !g_portal_gateways) return;
     DWORD tick = *(DWORD*)(track + 0x14);
     if (g_portal_race_tick != 0xffffffff && tick < g_portal_race_tick) portal_reset_race();
     g_portal_race_tick = tick;
+    if (g_portal_gateways) { gateways_tick(bike, tick); return; }
     if (g_portal_cooldown > 0) --g_portal_cooldown;
     float center[3];
     if (!portal_bike_center(bike, center)) return;
@@ -343,6 +362,8 @@ void __fastcall portal_tick_hook(void* self, void*) {
 void start_dlc_portals() {
     g_portals_enabled = game_file_exists("trials_revive_portals.txt");
     if (!g_portals_enabled) return;
+    gateways_check_native();
+    gateways_start_camera();
     start_portal_state_hook();
     const BYTE expected[] = {0x83,0xec,0x14,0xa1,0x48,0x35,0xee,0x01};   // GameProcessor::runTickLogic
     if (code_differs((uintptr_t)GA(0x47c510), expected, sizeof expected)) { g_portals_enabled = false; return; }
@@ -353,7 +374,7 @@ void start_dlc_portals() {
     *(int*)(trampoline + 9) = (int)(GA(0x47c518) - ((uintptr_t)trampoline + 13));
     g_tick_original = (TickFn)trampoline;
     if (patch_jmp(GA(0x47c510), expected, sizeof expected, (void*)&portal_tick_hook))
-        shim_log("portal: Neverending whole-bike physics, portal states and driving-line relocation enabled");
+        shim_log("portal: Neverending and Gateways bike portals enabled; Gateways native delay and captured momentum");
     else
         g_portals_enabled = false;
 }

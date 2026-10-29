@@ -1,4 +1,4 @@
-"""Stage per-world PC+DLC object VT indices and noncolliding raw filenames.
+r"""Stage per-world PC+DLC object VT indices and noncolliding raw filenames.
 
 Also stages each pack's object decal table (vtex/decalsObjects.dat from its data.pak, already
 converted by dlc_vtex.py) as build\data\vtex\decalsObjects_dlc<world>.dat: the game hardcodes the

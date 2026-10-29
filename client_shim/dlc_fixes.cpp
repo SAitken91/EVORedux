@@ -407,6 +407,9 @@ bool patch_call(uintptr_t at, const unsigned char* expected, size_t len, void* t
     return true;
 }
 
+#include "dlc_audio_garage.inl"
+#include "private_bonus_gear.inl"
+
 // ---- 5. DLC selector data source -----------------------------------------------------------
 // Xbox model 46b65320 (three_input_operator_1) is absent from the PC factory. Skipping it
 // also skips its TRIl record, so subsequent objects read the wrong bytes and eventually EOF.
@@ -1320,6 +1323,7 @@ bool table_has(const BYTE* table, DWORD key) {
 #include "dlc_particle_atlas.inl"
 #include "dlc_counter_gate.inl"
 #include "dlc_page_clear.inl"
+#include "dlc_decal_pool.inl"
 
 int __fastcall dlc_node_read(void* self, void*, void* stream, void* objects, void* selected, int version) {
     int i = dlc_node_index(self);
@@ -1560,6 +1564,7 @@ DWORD definition_flags(void* collection, DWORD model) {
 
 void __fastcall load_pack_collections_and_classify(void* game, void* edx) {
     ((GameFn)LOAD_PACK_COLLECTIONS)(game, edx);
+    load_dlc_audio_collections(game);
     char line[256], names[96] = "";
     __try {
         void* track = *(void**)((BYTE*)game + 0x30);
@@ -1752,6 +1757,7 @@ void start_dlc_fixes() {
     start_particle_atlas_fix();
     start_counter_gate();
     start_page_clear_fix();
+    start_decal_pool_fix();
     const unsigned char decal_objects_push[5] = {0x68, 0x10, 0xcc, 0xad, 0x01};   // push 01ADCC10h
     shim_log(ga_80a56e && patch_call(GA(0x80a569), decal_objects_push, 5, (void*)&dlc_decal_objects_stub)
                  ? "dlc texture fix: DLC worlds use their own decal objects"
@@ -1789,6 +1795,8 @@ void start_dlc_fixes() {
         shim_log("dlc fix: DLC packs' bikes.xml load on first bike lookup");
     else
         shim_log("dlc fix: DLC bikes patch skipped (unexpected code)");
+    start_audio_garage_fix();
+    start_private_bonus_gear();
     unsigned char collections_call[5] = {0xE8};
     *(int*)(collections_call + 1) = (int)(LOAD_PACK_COLLECTIONS - (PACK_COLLECTIONS_CALL + 5));
     shim_log(PACK_COLLECTIONS_CALL && LOAD_PACK_COLLECTIONS && CLASSIFY_CATEGORY && CATEGORY_SUBCATEGORIES &&

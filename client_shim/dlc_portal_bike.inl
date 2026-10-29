@@ -76,14 +76,21 @@ void portal_reproject_bike(BYTE* bike) {
         if (name == 0xf84642f0 || name == 0x8d32199b) {
             // TU3 preserves orientation and height while bringing the two
             // suspension anchors halfway onto the selected driving line.
-            *(float*)(physics + 0x34) = (position[0] + projected[0]) * 0.5f;
-            *(float*)(physics + 0x3c) = (position[2] + projected[1]) * 0.5f;
+            float matrix[16]; memcpy(matrix, physics + 4, sizeof matrix);
+            matrix[12] = (position[0] + projected[0]) * 0.5f;
+            matrix[14] = (position[2] + projected[1]) * 0.5f;
+            ((void(__fastcall*)(void*, void*, const float*))GA(0x4543c0))(physics, nullptr, matrix);
         }
         if (name == 0x1329aad5) {
             *(unsigned*)(bike + 0xa8) = index;
             *(float*)(bike + 0xac) = parameter;
             *(float*)(bike + 0x94) = direction[0];
             *(float*)(bike + 0x98) = direction[1];
+            // TU3 823842d0..823842f4 also resets the 3D driving-line basis.
+            // PC's corresponding frame branch is 45f267..45f280 (+36c).
+            *(float*)(bike + 0x36c) = direction[0];
+            *(float*)(bike + 0x370) = 0;
+            *(float*)(bike + 0x374) = direction[1];
         }
         if (name == 0x5bd7085d) {
             *(unsigned*)(bike + 0xb0) = index;
