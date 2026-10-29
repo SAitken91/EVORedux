@@ -220,6 +220,38 @@ void start_portal_state_hook() {
     } else g_state_exec = nullptr;
 }
 
+// Impulse counters (Magic Marker's pen/bike sync gates): count, required count (+0x78, the
+// serialized property 0x2f FILTER_IMPULSE_COUNTER_MIN_IMPULSES_TO), max sends (+0x7c), result.
+// Logged when the gate needs 2+ impulses or a single-impulse counter is over its count (blocked).
+typedef unsigned char(__fastcall* CounterExecFn)(void*, void*);
+CounterExecFn g_counter_exec;
+unsigned char __fastcall nt_counter_exec(void* self, void* edx) {
+    BYTE* s = (BYTE*)self;
+    int need = *(int*)(s + 0x78);
+    unsigned char passed = g_counter_exec(self, edx);
+    int count = *(int*)(s + 0x88), max_sends = *(int*)(s + 0x7c);
+    if ((need >= 2 || count > need) && nt_trace_line()) {
+        DWORD tick = 0;
+        __try { tick = *(DWORD*)(*(BYTE**)(*(BYTE**)GA(0x1ee3548) + 0x30) + 0x14); } __except (EXCEPTION_EXECUTE_HANDLER) {}
+        char line[200];
+        sprintf_s(line, "counter %d count=%d need=%d max=%d enabled=%d -> %s tick=%lu", nt_object_index(((void**)self)[1]),
+                  count, need, max_sends, *(s + 0x70), passed ? "PASS" : "blocked", tick);
+        nt_log(line);
+    }
+    return passed;
+}
+
+void start_counter_trace() {
+    DWORD* slot = (DWORD*)(GA(0x1589a1c) + 0xc);           // FilterImpulseCounter vtable, execute
+    if (!GA(0x1589a1c) || *slot != (DWORD)GA(0x633530)) { shim_log("nt trace: counter trace skipped (unexpected vtable)"); return; }
+    DWORD old;
+    if (!VirtualProtect(slot, 4, PAGE_READWRITE, &old)) return;
+    g_counter_exec = (CounterExecFn)*slot;
+    *slot = (DWORD)&nt_counter_exec;
+    VirtualProtect(slot, 4, old, &old);
+    shim_log("nt trace: impulse counter trace enabled");
+}
+
 void start_nt_trace() {
     if (!game_file_exists("trials_revive_nt_trace.txt")) return;
     const BYTE expected[] = {0x55,0x8b,0xec,0x83,0xe4,0xf0};      // EventObjectTransform slot 3
@@ -235,4 +267,5 @@ void start_nt_trace() {
     if (patch_jmp(GA(0x617810), expected, sizeof expected, (void*)&nt_transform_exec))
         shim_log("nt trace: generation-chain trace enabled (transforms, retargetors, set-vector, vectors)");
     start_portal_state_hook();
+    start_counter_trace();
 }

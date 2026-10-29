@@ -854,6 +854,25 @@ bool is_buccaneer_bay_missing_record(void* objects, DWORD owner, DWORD start, in
     }
 }
 
+// FilterImpulseCounter "reset in checkpoint" flags, by counter object (dlc_counter_reset.inl).
+// Filled while reading every track's counters: the DLC v47 extension byte, 1 for base-game records.
+struct CounterResetFlag { void* counter; BYTE reset_in_checkpoint; };
+CounterResetFlag g_counter_flags[8192];
+LONG g_counter_flag_count;
+
+void remember_counter_flag(void* counter, BYTE flag) {
+    for (LONG k = 0; k < g_counter_flag_count; ++k)
+        if (g_counter_flags[k].counter == counter) { g_counter_flags[k].reset_in_checkpoint = flag; return; }
+    if (g_counter_flag_count < (LONG)(sizeof g_counter_flags / sizeof g_counter_flags[0]))
+        g_counter_flags[g_counter_flag_count++] = {counter, flag};
+}
+
+BYTE counter_reset_in_checkpoint(void* counter) {
+    for (LONG k = 0; k < g_counter_flag_count; ++k)
+        if (g_counter_flags[k].counter == counter) return g_counter_flags[k].reset_in_checkpoint;
+    return 1;
+}
+
 int __fastcall trace_trigger_record(void* self, DWORD slot, void* reader, void* objects, void* selected, int version) {
     bool datasource = slot == 0x130;   // from trace_pass30ds: the datasource pass (same vtable slot as filters)
     slot &= 0xff;
@@ -892,9 +911,12 @@ int __fastcall trace_trigger_record(void* self, DWORD slot, void* reader, void* 
         BYTE flag = 0;
         StreamReadFn read = *(StreamReadFn*)(*(BYTE**)reader + 0x34);
         if (read(reader, nullptr, &flag, 1) != 1) result = 0x401;
+        remember_counter_flag(self, flag);
         sprintf_s(line, "dlc impulse-counter record: consumed extension %u at %lu", flag, end);
         shim_log(line);
         end = ((ReaderPositionFn)(*(DWORD**)reader)[0x4c / 4])(reader, nullptr);
+    } else if (!result && slot == 0x30 && vt == GA(0x1589a1c)) {
+        remember_counter_flag(self, 1);                // base-game counter: always reset
     }
     if (g_tri_trace) {
         sprintf_s(line, "TRI record end: slot=%lx vtable=%08lx id=%lu pos=%lu consumed=%lu result=%d",
@@ -1324,6 +1346,7 @@ bool table_has(const BYTE* table, DWORD key) {
 #include "dlc_counter_gate.inl"
 #include "dlc_page_clear.inl"
 #include "dlc_decal_pool.inl"
+#include "dlc_counter_reset.inl"
 
 int __fastcall dlc_node_read(void* self, void*, void* stream, void* objects, void* selected, int version) {
     int i = dlc_node_index(self);
@@ -1758,6 +1781,7 @@ void start_dlc_fixes() {
     start_counter_gate();
     start_page_clear_fix();
     start_decal_pool_fix();
+    start_counter_keep_fix();
     const unsigned char decal_objects_push[5] = {0x68, 0x10, 0xcc, 0xad, 0x01};   // push 01ADCC10h
     shim_log(ga_80a56e && patch_call(GA(0x80a569), decal_objects_push, 5, (void*)&dlc_decal_objects_stub)
                  ? "dlc texture fix: DLC worlds use their own decal objects"
