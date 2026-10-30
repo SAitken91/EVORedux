@@ -19,6 +19,7 @@ import zlib
 from pak import read_pak, file_data
 from dlc_events import name_hash
 from dlc_vtex import raw_file_name
+from dlc_vt_relocate import SHIFT as RELOCATE, shift_rows
 
 
 def rows(data):
@@ -49,7 +50,8 @@ def main():
         hdr_name = f'vtex/vtex_objects{world+1}.raw.hdr'
         data, entries = read_pak(str(root / 'data/data.pak'))
         hdr = file_data(data, next(e for e in entries if e['hash'] == name_hash(hdr_name)))
-        dlc = rows(hdr)
+        # Origin of Pain's pages move with its material rectangles (dlc_vt_relocate.py).
+        dlc = shift_rows(rows(hdr), RELOCATE.get(pack, 0))
         merged = {r[0]: r for r in base}
         mapping = {}
         files = []

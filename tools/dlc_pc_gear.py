@@ -1,7 +1,8 @@
 """Keep PC-exclusive rider/bike textures separate from Xbox DLC atlas allocations.
 
 Paine Island's circus materials overlap the Gold Edition bonus gear at the same virtual UVs.
-Move only PC_exclusive material rectangles +0.25 in U, into unused object-atlas space, and
+Move only PC_exclusive material rectangles +0.375 in U (earlier releases: +0.25, migrated here),
+into unused object-atlas space below column 1024 and clear of relocated Origin of Pain, and
 alias the original PC pages there. Raw texture pixels, mesh UVs and DLC rectangles stay intact.
 Stages complete candidate files first; --install backs up changed destinations once.
 Requires the current client shim's per-world/base object-index hooks. Local game assets only.
@@ -24,7 +25,10 @@ from pak import read_pak, file_data
 MATERIAL_ID = 0x255b12
 ID, X, Y, W, H = 0x36ef52, 0x78, 0x79, 0x7a, 0x77
 UV_TABLE = 0x978cb0d6
-SHIFT = 0.25
+SHIFT = 0.375        # +768 level-11 columns: clear of Origin of Pain at 640-831 (dlc_vt_relocate.py)
+OLD_SHIFTS = (0.25,)  # earlier releases; their installs are moved on to SHIFT
+LIMIT = 0.25          # original PC-exclusive rectangles all lie in U 0-0.25
+COARSE = 3            # at or below this level a shared page keeps the DLC's content
 PACKS = (('OriginofPain', 1), ('RidersofDoom', 2))
 
 
@@ -84,7 +88,13 @@ def pc_materials(data, tree):
     selected = {mid: n for mid, n in nodes.items() if mid in ids and rect(n)[2] > 0 and rect(n)[3] > 0}
     if not selected:
         raise ValueError('No PC-exclusive virtual-texture materials found')
-    shifted = {rect(n)[0] >= SHIFT for n in selected.values()}
+    # Current position: original (U < LIMIT), this release's SHIFT, or an older release's shift.
+    def applied(x):
+        for s in (SHIFT, *OLD_SHIFTS):
+            if x >= s:
+                return s
+        return 0.0
+    shifted = {applied(rect(n)[0]) for n in selected.values()}
     if len(shifted) != 1:
         raise ValueError('Mixed original/relocated PC material coordinates')
     was_shifted = shifted.pop()
@@ -92,9 +102,8 @@ def pc_materials(data, tree):
     output = bytearray(data)
     for mid, node in selected.items():
         x, y, w, h = rect(node)
-        if was_shifted:
-            x -= SHIFT
-        if not (0 <= x < x + w <= SHIFT and 0.25 <= y < y + h <= 0.5):
+        x -= was_shifted
+        if not (0 <= x < x + w <= LIMIT and 0.25 <= y < y + h <= 0.5):
             raise ValueError(f'Unexpected PC object-atlas rectangle for {mid}')
         original[mid] = (x, y, w, h)
         set_x(output, node, x + SHIFT)
@@ -109,11 +118,14 @@ def alias_pages(base, rectangles):
         if not 2 <= level <= 11:
             raise ValueError('Unsupported object-atlas mip level')
         scale = 1 << level
+        step = SHIFT * scale
+        if step != int(step):
+            continue          # level 2: the shift is not a whole page; leave that page to the DLC
         # Include adjacent source tiles so mip filtering at a rectangle boundary stays valid.
         if any(math.floor(x * scale) - 1 <= px <= math.ceil((x + w) * scale) and
                math.floor(y * scale) - 1 <= py <= math.ceil((y + h) * scale)
                for x, y, w, h in rectangles):
-            target = (level << 24) | (py << 12) | (px + (1 << (level - 2)))
+            target = (level << 24) | (py << 12) | (px + int(step))
             aliases[target] = (target, offset, size, file)
     if not aliases:
         raise ValueError('No source PC pages selected')
@@ -124,6 +136,8 @@ def with_aliases(index, aliases):
     merged = {r[0]: r for r in rows(index)}
     for page, row in aliases.items():
         if page in merged and merged[page] != row:
+            if page >> 24 <= COARSE:
+                continue          # a whole-atlas mip page shared with the DLC: the DLC keeps it
             raise ValueError(f'Relocated PC page conflicts with existing content: {page:08x}')
         merged[page] = row
     result = struct.pack('<I', len(merged)) + b''.join(struct.pack('<IIHB', *merged[k]) for k in sorted(merged))
@@ -192,13 +206,22 @@ def stage(game, output):
 
     def extend_dlc(raw):
         table, existing = uv_nodes(load(raw))
-        missing = []
+        missing, updated = [], bytearray(raw)
         for mid, blob in sorted(alias_nodes.items()):
             if mid in existing:
-                if raw[existing[mid]['s']:existing[mid]['e']] != blob:
-                    raise ValueError(f'DLC material {mid} conflicts with PC-only relocation')
+                node = existing[mid]
+                if raw[node['s']:node['e']] != blob:
+                    # An earlier release's copy: same rectangle at an older shift. Move only its U.
+                    x, y, w, h = rect(node)
+                    ox, oy, ow, oh = original[mid]
+                    if not any(abs(x - (ox + s)) < 1e-6 for s in OLD_SHIFTS) or (y, w, h) != (oy, ow, oh):
+                        raise ValueError(f'DLC material {mid} conflicts with PC-only relocation')
+                    set_x(updated, node, ox + SHIFT)
+                    if bytes(updated[node['s']:node['e']]) != blob:
+                        raise ValueError(f'DLC material {mid} did not match after moving')
             else:
                 missing.append(b'\x01' + blob)
+        raw = bytes(updated)
         pos = table['e'] - 1
         return raw[:pos] + b''.join(missing) + raw[pos:]
 

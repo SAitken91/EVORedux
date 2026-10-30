@@ -419,6 +419,9 @@ def main():
         raise SystemExit("Trials Evolution is running. Close it and run this again.")
     for folder, path in staged.items():
         install(folder, path, game)
+    step("moving Origin of Pain's textures clear of the base game's")
+    import dlc_vt_relocate
+    dlc_vt_relocate.relocate_installed(game)
     step("building the DLC texture index")
     sys.argv = ["dlc_object_index.py", game, os.path.join(game, "build", "data", "vtex")]
     import dlc_object_index
