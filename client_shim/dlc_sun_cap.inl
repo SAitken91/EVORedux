@@ -15,6 +15,10 @@ namespace {
 typedef HRESULT(__stdcall* CreatePixelShaderFn)(void* device, const void* code, SIZE_T size, void* linkage, void** out);
 CreatePixelShaderFn g_create_pixel_shader;
 volatile LONG g_sun_cap_patched;
+bool g_sun_cap_enabled;
+// Other pixel-shader rewrites share this hook (one patch at 0x882c15): dlc_far_blur.inl.
+bool far_blur_create(void* device, const void* code, SIZE_T size, void* linkage, void** out,
+                     CreatePixelShaderFn create, HRESULT* hr);
 
 // DXBC checksum: MD5 rounds over bytes 20.., with DXBC's own final padding.
 void md5_block(DWORD st[4], const BYTE* p) {
@@ -72,8 +76,10 @@ const BYTE* find_bytes(const BYTE* p, SIZE_T n, const void* pat, SIZE_T m) {
 HRESULT __stdcall create_pixel_shader_hook(void* device, const void* code, SIZE_T size, void* linkage, void** out) {
     // Immediate operand of `min r0.xyz, r0.xyzx, l(6,6,6,0)`: token 0x00004002 then the 4 floats.
     static const DWORD clamp6[5] = {0x00004002, 0x40c00000, 0x40c00000, 0x40c00000, 0};
+    HRESULT replaced;
+    if (far_blur_create(device, code, size, linkage, out, g_create_pixel_shader, &replaced)) return replaced;
     const BYTE* src = (const BYTE*)code;
-    if (src && size > 64 && size < 0x100000 && !memcmp(src, "DXBC", 4) &&
+    if (g_sun_cap_enabled && src && size > 64 && size < 0x100000 && !memcmp(src, "DXBC", 4) &&
         find_bytes(src, size, "gp_colorPSSM", 12) && find_bytes(src, size, "shadowMapPSSM", 13) &&
         find_bytes(src, size, "gbufferNormal", 13)) {
         const BYTE* hit = find_bytes(src, size, clamp6, sizeof clamp6);
@@ -108,13 +114,11 @@ __declspec(naked) void create_pixel_shader_stub() {
 }
 
 void start_sun_cap_fix() {
-    if (game_file_exists("trials_revive_no_sun_cap.txt")) {
-        shim_log("dlc light fix: sun light cap DISABLED by trials_revive_no_sun_cap.txt");
-        return;
-    }
+    g_sun_cap_enabled = !game_file_exists("trials_revive_no_sun_cap.txt");
+    if (!g_sun_cap_enabled) shim_log("dlc light fix: sun light cap DISABLED by trials_revive_no_sun_cap.txt");
     const unsigned char call_ps[5] = {0x8b, 0x4a, 0x3c, 0xff, 0xd1};
     shim_log(patch_call(GA(0x882c15), call_ps, sizeof call_ps, (void*)&create_pixel_shader_stub)
-                 ? "dlc light fix: sun light cap hook armed"
+                 ? "dlc light fix: pixel shader hook armed (sun cap, far blur)"
                  : "dlc light fix: sun light cap skipped (unexpected code)");
 }
 

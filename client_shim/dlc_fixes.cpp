@@ -1348,6 +1348,7 @@ bool table_has(const BYTE* table, DWORD key) {
 #include "dlc_decal_pool.inl"
 #include "dlc_counter_reset.inl"
 #include "dlc_sun_cap.inl"
+#include "dlc_far_blur.inl"
 #include "dlc_magic_marker_sun.inl"
 
 int __fastcall dlc_node_read(void* self, void*, void* stream, void* objects, void* selected, int version) {
@@ -1784,6 +1785,7 @@ void start_dlc_fixes() {
     start_page_clear_fix();
     start_decal_pool_fix();
     start_counter_keep_fix();
+    start_far_blur_fix();
     start_sun_cap_fix();
     start_magic_marker_sun_fix();
     const unsigned char decal_objects_push[5] = {0x68, 0x10, 0xcc, 0xad, 0x01};   // push 01ADCC10h
