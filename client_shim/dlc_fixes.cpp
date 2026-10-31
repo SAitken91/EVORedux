@@ -409,6 +409,9 @@ bool patch_call(uintptr_t at, const unsigned char* expected, size_t len, void* t
 
 #include "dlc_audio_garage.inl"
 #include "private_bonus_gear.inl"
+#include "dlc_hd_shirts.inl"
+#include "friend_list_fix.inl"
+#include "dlc_aerial_architect.inl"
 
 // ---- 5. DLC selector data source -----------------------------------------------------------
 // Xbox model 46b65320 (three_input_operator_1) is absent from the PC factory. Skipping it
@@ -729,11 +732,14 @@ __declspec(naked) void retarget_transform_stub() {
     }
 }
 
+#include "dlc_retarget_queries.inl"
+
 void start_retarget_runtime() {
     const BYTE original[5] = {0x8b,0x59,0x08,0x33,0xf6};
     g_retarget_hook_enabled = patch_jmp(GA(0x6178ba), original, sizeof original, (void*)&retarget_transform_stub);
     shim_log(g_retarget_hook_enabled ? "dlc runtime: transform retarget resolution enabled"
                                     : "dlc runtime: retarget hook not installed (unexpected code)");
+    if(g_retarget_hook_enabled)start_retarget_query_fix();
 }
 
 // ---- 6. DLC-only track chunks ----------------------------------------------------------------
@@ -1758,6 +1764,7 @@ bool dlc_present() {
 
 void start_dlc_fixes() {
     if (!game_build_known()) return;
+    start_friend_list_fix();
     start_trigger_trace();
     const unsigned char pass28[5] = {0x8b,0x11,0x8b,0x42,0x28};
     const unsigned char pass38[5] = {0x8b,0x11,0x8b,0x42,0x38};
@@ -1827,6 +1834,8 @@ void start_dlc_fixes() {
         shim_log("dlc fix: DLC bikes patch skipped (unexpected code)");
     start_audio_garage_fix();
     start_private_bonus_gear();
+    start_hd_shirts_fix();
+    start_aerial_architect_fix();
     unsigned char collections_call[5] = {0xE8};
     *(int*)(collections_call + 1) = (int)(LOAD_PACK_COLLECTIONS - (PACK_COLLECTIONS_CALL + 5));
     shim_log(PACK_COLLECTIONS_CALL && LOAD_PACK_COLLECTIONS && CLASSIFY_CATEGORY && CATEGORY_SUBCATEGORIES &&

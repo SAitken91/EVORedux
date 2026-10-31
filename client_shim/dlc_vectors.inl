@@ -6,6 +6,8 @@ struct VectorState {
     void* reference;
     void* adapters[2];
     void* targets[1024];
+    void* color_targets[1024];
+    unsigned color_count;
     unsigned target_count, count, index, operation;
     int kind;
     bool reset, triple, evaluating, publishing;
@@ -92,6 +94,19 @@ void vector_compute(VectorState* s, void* visited, int depth) {
     *(float*)((BYTE*)s->self + 0x28) = s->values[0];
     for (unsigned k = 0; k < 2; ++k) if (s->adapters[k])
         *(float*)((BYTE*)s->adapters[k] + 0x28) = s->values[k + 1];
+    // DLC property477 carries a complete RGB vector in the editor's 0..255
+    // range. PC has no vector-property setter. Use its native recursive color
+    // updater, which writes the same material constants as EventColor.
+    if(s->color_count && s->count>=3) {
+        float rgba[4]={0,0,0,1};
+        for(unsigned k=0;k<3;++k) {
+            float v=s->values[k];rgba[k]=v>255?1:v>0?v/255.0f:0;
+        }
+        for(unsigned k=0;k<s->color_count;++k) {
+            void* target=resolve_dlc_retarget(s->color_targets[k]);
+            if(target)((void(__cdecl*)(void*,const float*,float))GA(0x640ed0))(target,rgba,1.0f);
+        }
+    }
     s->evaluating = false;
 }
 void vector_publish(VectorState* s) {
@@ -188,6 +203,9 @@ int vector_read(VectorState* s, void* stream, void* objects, void* selected, int
             if (m > 1024) return 0x401;
             while (m--) {
                 unsigned property = r.u16(), component = 0;
+                if(property==477) {
+                    if(target && s->color_count<_countof(s->color_targets))s->color_targets[s->color_count++]=target;
+                }
                 if (property >= 390 && property <= 392) component = property - 390;
                 else if (property >= 502 && property <= 504) component = property - 502;
                 if (!target) continue;
@@ -265,4 +283,12 @@ unsigned char __fastcall vector_set(void* self, void*) {
         ((void(__fastcall*)(void*, void*, int))GA(0x621ab0))(target->self, nullptr, 0);
     }
     return result;
+}
+
+// Color vectors can have only material outputs, so no scalar consumer pulls
+// them on PC. Evaluate those sources once per world step using the engine's
+// visited table; their input curves retain native timing and checkpoint state.
+void update_dlc_vector_colors() {
+    for(VectorState* s=g_vectors;s;s=s->next)
+        if(s->color_count)((void(__fastcall*)(void*,void*,int))GA(0x621ab0))(s->self,nullptr,0);
 }

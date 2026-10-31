@@ -435,6 +435,9 @@ def main():
         raise SystemExit("Trials Evolution is running. Close it before finishing the texture repair.")
     dlc_pc_gear.install(Path(game), gear_stage)
     restore_cut_items(game)
+    step("adding the Xbox rider gear to the garage")
+    import dlc_rider_gear
+    dlc_rider_gear.main(game)
     paint_dlc_ground(game)
     if not args.keep_work:
         shutil.rmtree(work, ignore_errors=True)
