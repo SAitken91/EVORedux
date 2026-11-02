@@ -6,7 +6,7 @@ To list them in the game, search **DLC**, **OoP** or **RoD** in Get Tracks.
 
 | Track | Creator | Difficulty | Type | Needs | Votes |
 |---|---|---|---|---|---|
-| #Red-Fear# | yotatvador | Extreme | Trials | OoP+RoD | 138 |
+| \1Red-Fear\1 | yotatvador | Extreme | Trials | OoP+RoD | 138 |
 | (( HYRVI )) | tenthousandstig | Extreme | Trials | OoP | 160 |
 | (Vigilante) | yotatvador | Extreme | Trials | OoP+RoD | 284 |
 | - KA-SHA 2 - | STICKMANbeni | Extreme | Trials | OoP+RoD | 230 |
@@ -29,14 +29,14 @@ To list them in the game, search **DLC**, **OoP** or **RoD** in Get Tracks.
 | -TR tata climb- | wW Dovahkiin Ww | Extreme | Trials | OoP+RoD | 122 |
 | .CLMB.R1.7 | yotatvador | Extreme | Trials | OoP+RoD | 121 |
 | .Confirmed Nj | yotatvador | Extreme | Trials | OoP+RoD | 147 |
-| .Planete~Nnja | yotatvador | Extreme | Trials | OoP+RoD | 173 |
+| .Planete\1Nnja | yotatvador | Extreme | Trials | OoP+RoD | 173 |
 | .Supra-Climb | yotatvador | Extreme | Trials | OoP+RoD | 182 |
 | 99 Ways to Die | jook13 | Extreme | Trials | OoP+RoD | 346 |
-| [1] | RoXxy III | Extreme | Trials | OoP+RoD | 149 |
-| [2] | RoXxy III | Extreme | Trials | OoP+RoD | 140 |
-| [31-SF-N2] Kjata | Spargokuroth | Extreme | Trials | OoP+RoD | 115 |
-| [Flubber] | RoXxy III | Extreme | Trials | RoD | 131 |
-| [Ninja-Fction] | yotatvador | Extreme | Trials | OoP+RoD | 149 |
+| \11\1 | RoXxy III | Extreme | Trials | OoP+RoD | 149 |
+| \12\1 | RoXxy III | Extreme | Trials | OoP+RoD | 140 |
+| \131-SF-N2\1 Kjata | Spargokuroth | Extreme | Trials | OoP+RoD | 115 |
+| \1Flubber\1 | RoXxy III | Extreme | Trials | RoD | 131 |
+| \1Ninja-Fction\1 | yotatvador | Extreme | Trials | OoP+RoD | 149 |
 | A Day to Paradise | Wesse NinZa | Extreme | Trials | OoP+RoD | 905 |
 | A Glimpse 3 | CPR Hermit | Extreme | Trials | OoP+RoD | 179 |
 | A long time ago | xST0NIEx | Extreme | Trials | OoP+RoD | 566 |
@@ -72,7 +72,7 @@ To list them in the game, search **DLC**, **OoP** or **RoD** in Get Tracks.
 | Colorful (fixed) | Chaaampy | Extreme | Trials | RoD | 146 |
 | Complex | Ozunu Rayzo | Extreme | Trials | OoP+RoD | 268 |
 | Constructed | iM D0NE BR0 | Extreme | Trials | OoP+RoD | 206 |
-| Contagion [NINJA] | Nytmair | Extreme | Trials | OoP+RoD | 118 |
+| Contagion \1NINJA\1 | Nytmair | Extreme | Trials | OoP+RoD | 118 |
 | Contaminate | HqK I WraaTh | Extreme | Trials | OoP+RoD | 159 |
 | Corsair's Cavern | Xx FaTaL sNiPeS | Extreme | Trials | RoD | 929 |
 | Crepuscular | AM0RPHOUS | Extreme | Trials | OoP+RoD | 307 |
@@ -95,7 +95,7 @@ To list them in the game, search **DLC**, **OoP** or **RoD** in Get Tracks.
 | Double Espresso | camzarcar | Extreme | Trials | OoP+RoD | 185 |
 | Downpour | Xx FaTaL sNiPeS | Extreme | Trials | OoP+RoD | 280 |
 | Draculas Revenge V2 | ll ManOnFire ll | Extreme | Trials | OoP+RoD | 592 |
-| Dragon`s Den {XTR} | ll ManOnFire ll | Extreme | Trials | OoP+RoD | 1,282 |
+| Dragon\1s Den {XTR} | ll ManOnFire ll | Extreme | Trials | OoP+RoD | 1,282 |
 | Dragons Peak(N)BMX | DJ 2wItchY | Extreme | Trials | OoP | 132 |
 | Drknss Ninj | yotatvador | Extreme | Trials | OoP+RoD | 173 |
 | egg and spoon | Xx FaTaL sNiPeS | Extreme | Trials | OoP | 365 |
@@ -144,14 +144,14 @@ To list them in the game, search **DLC**, **OoP** or **RoD** in Get Tracks.
 | Inferno3- Banshee | Red Lynx Office | Extreme | Trials | RoD | 1,653 |
 | Insanity | Xx FaTaL sNiPeS | Extreme | Trials | OoP | 278 |
 | Insatiable 1.1 | Hp venomZ | Extreme | Trials | RoD | 119 |
-| IRON~II | yotatvador | Extreme | Trials | OoP+RoD | 118 |
+| IRON\1II | yotatvador | Extreme | Trials | OoP+RoD | 118 |
 | It's How You Use It | IM B1RDY | Extreme | Trials | OoP+RoD | 149 |
 | It'z Not Butter | JamaicanX | Extreme | Trials | OoP+RoD | 135 |
 | JEDI BALANCE | Audio Additive | Extreme | Trials | OoP+RoD | 488 |
 | JimBob Gymkhana | EvelForknspokes | Extreme | Trials | OoP+RoD | 280 |
 | Kate's Mountain | li Shayne il | Extreme | Trials | RoD | 234 |
 | Kerfuffle | TR Good Grief | Extreme | Trials | RoD | 326 |
-| KING OF FOREST[BmX] | FunKyBobs | Extreme | Trials | OoP | 332 |
+| KING OF FOREST\1BmX\1 | FunKyBobs | Extreme | Trials | OoP | 332 |
 | LG-INDUSTRY | LethalGangsta82 | Extreme | Trials | OoP+RoD | 231 |
 | Lost In The Echo | TR Good Grief | Extreme | Trials | RoD | 424 |
 | Lynx Lake -Gecko- | TBNSoty | Extreme | Trials | OoP | 183 |
@@ -166,8 +166,8 @@ To list them in the game, search **DLC**, **OoP** or **RoD** in Get Tracks.
 | MENTAL | Xx FaTaL sNiPeS | Extreme | Trials | OoP+RoD | 368 |
 | Metro | Hp venomZ | Extreme | Trials | OoP+RoD | 244 |
 | MINE F DM | attila999 | Extreme | Trials | OoP+RoD | 560 |
-| Mininja #1 | Chaaampy | Extreme | Trials | OoP+RoD | 164 |
-| Mininja #2 | Chaaampy | Extreme | Trials | OoP+RoD | 143 |
+| Mininja \11 | Chaaampy | Extreme | Trials | OoP+RoD | 164 |
+| Mininja \12 | Chaaampy | Extreme | Trials | OoP+RoD | 143 |
 | Missundaztood | Chaaampy | Extreme | Trials | OoP+RoD | 221 |
 | MNTAGNE MAGIC 14 | attila999 | Extreme | Trials | OoP+RoD | 371 |
 | MNTAGNE MAGIC F1 | attila999 | Extreme | Trials | OoP+RoD | 516 |
@@ -179,7 +179,7 @@ To list them in the game, search **DLC**, **OoP** or **RoD** in Get Tracks.
 | Moonlight Ninja L2 | Apache ll | Extreme | Trials | OoP | 184 |
 | Morning Tide | MainSqueeeze | Extreme | Trials | OoP+RoD | 124 |
 | Mountain-X | JamaicanX | Extreme | Trials | OoP+RoD | 173 |
-| MPC FIN_LOGIK | kid m p c | Extreme | Trials | OoP+RoD | 185 |
+| MPC FIN\1LOGIK | kid m p c | Extreme | Trials | OoP+RoD | 185 |
 | MPC MOPAREVORULES | kid m p c | Extreme | Trials | OoP+RoD | 215 |
 | MPC quicktrack | kid m p c | Extreme | Trials | OoP+RoD | 356 |
 | MUTH F MADNESS | attila999 | Extreme | Trials | OoP | 812 |
@@ -204,7 +204,7 @@ To list them in the game, search **DLC**, **OoP** or **RoD** in Get Tracks.
 | Obscurity | Chaaampy | Extreme | Trials | OoP | 369 |
 | Ocean-Ninja | yotatvador | Extreme | Trials | OoP+RoD | 174 |
 | Old Town | Loot Monkey | Extreme | Trials | OoP+RoD | 552 |
-| Old~SchlNnj | yotatvador | Extreme | Trials | OoP+RoD | 159 |
+| Old\1SchlNnj | yotatvador | Extreme | Trials | OoP+RoD | 159 |
 | Onstage | KaliniuS | Extreme | Trials | OoP+RoD | 1,180 |
 | Onstage, Act 2 | KaliniuS | Extreme | Trials | OoP+RoD | 937 |
 | Onstage, Encore | KaliniuS | Extreme | Trials | OoP+RoD | 651 |
@@ -261,7 +261,7 @@ To list them in the game, search **DLC**, **OoP** or **RoD** in Get Tracks.
 | The WrEcK | HqK I WraaTh | Extreme | Trials | OoP+RoD | 136 |
 | TL NINJA HD | teuchiiland83 | Extreme | Trials | OoP+RoD | 164 |
 | TL83 NINJA HARD | teuchiiland83 | Extreme | Trials | OoP+RoD | 152 |
-| Tower Bridge [DLC] | N7 Noob | Extreme | Trials | RoD | 140 |
+| Tower Bridge \1DLC\1 | N7 Noob | Extreme | Trials | RoD | 140 |
 | Treasure Town | DJ 2wItchY | Extreme | Trials | OoP+RoD | 315 |
 | Trials2 SE | Xx FaTaL sNiPeS | Extreme | Trials | RoD | 455 |
 | UC DEAD or ALIVE | IM A IN II A IK | Extreme | Trials | OoP+RoD | 692 |
@@ -270,7 +270,7 @@ To list them in the game, search **DLC**, **OoP** or **RoD** in Get Tracks.
 | UC Mansion | IM A IN II A IK | Extreme | Trials | OoP+RoD | 969 |
 | UC Old Castle | IM A IN II A IK | Extreme | Trials | OoP | 2,513 |
 | W.Sector Ninja.W | yotatvador | Extreme | Trials | OoP+RoD | 181 |
-| Way of Madness[Ext] | FunKyBobs | Extreme | Trials | RoD | 275 |
+| Way of Madness\1Ext\1 | FunKyBobs | Extreme | Trials | RoD | 275 |
 | Way Of Your Face | mutetus | Extreme | Trials | OoP+RoD | 501 |
 | Way to Paradise | Wesse NinZa | Extreme | Trials | OoP | 120 |
 | WayofTheNinja (BMX) | Red Lynx Office | Extreme | Trials | OoP | 7,473 |
@@ -282,27 +282,27 @@ To list them in the game, search **DLC**, **OoP** or **RoD** in Get Tracks.
 | Zodiac Temple | Xx FaTaL sNiPeS | Extreme | Trials | OoP+RoD | 761 |
 | ZooZ | LatChoX | Extreme | Trials | OoP+RoD | 126 |
 | {Structural Forest} | yotatvador | Extreme | Trials | OoP+RoD | 542 |
-| {wather~Ninja} | yotatvador | Extreme | Trials | OoP+RoD | 225 |
-| ~ Camel ~ | RoXxy III | Extreme | Trials | OoP+RoD | 153 |
-| ~!Natural~ | yotatvador | Extreme | Trials | OoP+RoD | 166 |
-| ~Ammunitn-dump~ | G SatchmO | Extreme | Trials | OoP+RoD | 148 |
-| ~Black Bushido~ | RoXxy III | Extreme | Trials | OoP+RoD | 197 |
-| ~Black Jiga~ | RoXxy III | Extreme | Trials | OoP+RoD | 169 |
-| ~Clear-water~ | G SatchmO | Extreme | Trials | OoP+RoD | 202 |
-| ~Cmpendium~ | G SatchmO | Extreme | Trials | OoP+RoD | 231 |
-| ~Comedon~ | RoXxy III | Extreme | Trials | OoP+RoD | 137 |
-| ~DaulaS~ | G SatchmO | Extreme | Trials | OoP+RoD | 199 |
-| ~En Cage~ | RoXxy III | Extreme | Trials | OoP+RoD | 129 |
-| ~Ls temps Mdernes~ | G SatchmO | Extreme | Trials | OoP+RoD | 261 |
-| ~Mario-Ev~(gVII) | G SatchmO | Extreme | Trials | OoP+RoD | 474 |
-| ~Mechanical-Space~ | G SatchmO | Extreme | Trials | OoP+RoD | 201 |
-| ~Mlhm(zi)~ | wW Dovahkiin Ww | Extreme | Trials | OoP+RoD | 116 |
-| ~Risk-&R~  III | G SatchmO | Extreme | Trials | OoP+RoD | 303 |
-| ~Risk-IV~ | G SatchmO | Extreme | Trials | OoP+RoD | 187 |
-| ~RisK-{rd&bl}~ | G SatchmO | Extreme | Trials | OoP+RoD | 488 |
-| ~sanus~ | ramchandra6 | Extreme | Trials | OoP+RoD | 194 |
-| ~Seppuku~ | RoXxy III | Extreme | Trials | OoP+RoD | 297 |
-| ~Space-G~ | G SatchmO | Extreme | Trials | OoP+RoD | 205 |
-| ~Switch-n~ | G SatchmO | Extreme | Trials | OoP+RoD | 145 |
-| ~Temple-ff~ | G SatchmO | Extreme | Trials | OoP+RoD | 178 |
-| ~ZinK-III~ | G SatchmO | Extreme | Trials | OoP+RoD | 428 |
+| {wather\1Ninja} | yotatvador | Extreme | Trials | OoP+RoD | 225 |
+| \1 Camel \1 | RoXxy III | Extreme | Trials | OoP+RoD | 153 |
+| \1!Natural\1 | yotatvador | Extreme | Trials | OoP+RoD | 166 |
+| \1Ammunitn-dump\1 | G SatchmO | Extreme | Trials | OoP+RoD | 148 |
+| \1Black Bushido\1 | RoXxy III | Extreme | Trials | OoP+RoD | 197 |
+| \1Black Jiga\1 | RoXxy III | Extreme | Trials | OoP+RoD | 169 |
+| \1Clear-water\1 | G SatchmO | Extreme | Trials | OoP+RoD | 202 |
+| \1Cmpendium\1 | G SatchmO | Extreme | Trials | OoP+RoD | 231 |
+| \1Comedon\1 | RoXxy III | Extreme | Trials | OoP+RoD | 137 |
+| \1DaulaS\1 | G SatchmO | Extreme | Trials | OoP+RoD | 199 |
+| \1En Cage\1 | RoXxy III | Extreme | Trials | OoP+RoD | 129 |
+| \1Ls temps Mdernes\1 | G SatchmO | Extreme | Trials | OoP+RoD | 261 |
+| \1Mario-Ev\1(gVII) | G SatchmO | Extreme | Trials | OoP+RoD | 474 |
+| \1Mechanical-Space\1 | G SatchmO | Extreme | Trials | OoP+RoD | 201 |
+| \1Mlhm(zi)\1 | wW Dovahkiin Ww | Extreme | Trials | OoP+RoD | 116 |
+| \1Risk-&R\1  III | G SatchmO | Extreme | Trials | OoP+RoD | 303 |
+| \1Risk-IV\1 | G SatchmO | Extreme | Trials | OoP+RoD | 187 |
+| \1RisK-{rd&bl}\1 | G SatchmO | Extreme | Trials | OoP+RoD | 488 |
+| \1sanus\1 | ramchandra6 | Extreme | Trials | OoP+RoD | 194 |
+| \1Seppuku\1 | RoXxy III | Extreme | Trials | OoP+RoD | 297 |
+| \1Space-G\1 | G SatchmO | Extreme | Trials | OoP+RoD | 205 |
+| \1Switch-n\1 | G SatchmO | Extreme | Trials | OoP+RoD | 145 |
+| \1Temple-ff\1 | G SatchmO | Extreme | Trials | OoP+RoD | 178 |
+| \1ZinK-III\1 | G SatchmO | Extreme | Trials | OoP+RoD | 428 |
