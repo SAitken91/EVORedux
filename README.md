@@ -32,6 +32,7 @@ leaderboards fill up again — let's bring the glory back to them.
 - ✅ **Track Central is back in the game** — Get Tracks, search and download over 1,600 Xbox 360
   community tracks, with screenshots, ratings and the original creators (see
   [Get Track Central tracks](#get-track-central-tracks))
+- ✅ **Upload your own tracks** from the editor to Track Central, for everyone to find and download
 - ✅ **Track Central tracks you have installed** are playable, with leaderboards that include
   thousands of archived historical scores (see [Legacy spots](#legacy-spots-the-historical-scores))
 - ✅ Occasional revival messages in the main-menu news ticker
@@ -43,8 +44,7 @@ leaderboards fill up again — let's bring the glory back to them.
 The aim is the full online experience, not just part of it:
 
 - 🔜 **Multiplayer** — online races with other players
-- 🔜 **Track Central in full** — uploading your own tracks, and the Xbox 360 tracks that use DLC
-  objects (about 4,200 more)
+- 🔜 **The rest of Track Central** — the Xbox 360 tracks that use DLC objects (about 4,200 more)
 - 🔜 Everything else the original servers did, one piece at a time
 
 Progress is posted here as features come online.
@@ -110,6 +110,9 @@ the server admin to release your name (your scores and ghosts stay attached to i
 **In the game:** open Track Central → **Get Tracks**. Over 1,600 Xbox 360 community tracks are
 there to browse (Most Downloaded, Highest Rated, New, RedLynx Picks) or search by track name or
 creator. Download one and it's in your Play Tracks list. This needs EVO Redux v1.5.2 or newer.
+
+**Share your own:** upload a track from the editor as on the original servers. It shows up in New
+and in search for everyone.
 
 Tip: download the tracks you want rather than installing thousands by hand — the Play Tracks page
 loads faster with fewer tracks installed.

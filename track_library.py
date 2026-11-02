@@ -14,8 +14,10 @@ UGCContent properties (ids as the client reads them in RDVDownloadContentTask):
   11-14 four ints from the track's metadata, 15 downloads, 16 rating (stars = (v-1)//20+1),
   17 rating count.
 """
+import lzma
 import os
 import sqlite3
+import struct
 import threading
 import uuid
 
@@ -35,6 +37,9 @@ GAME_TYPE_MASK = sum(GAME_TYPE_BITS)
 # re-asks forever, its 100-entry gamertag queue stays full and the next lookup crashes the game.
 # UserStorage content ids for library blobs, apart from the autoincrement ids of player uploads.
 BLOB_ID_BASE = 1 << 48
+# Tracks players upload from the game get ids from here up, clear of the 360 archive's ids.
+PLAYER_ID_BASE = 10_000_000
+SOURCE_PLAYER, SOURCE_PLAYER_PENDING = "player", "player-pending"   # pending: uploaded, not published
 
 # UGCQuery ids the client sends (RDVGetFeedsTask 0x92bd00 maps a feed's sort + game type to one;
 # RDVEnumerateContentTask sends 6/7 for searches)
@@ -64,6 +69,35 @@ def flags_for(game_type, difficulty, flag31=0):
     return v | (0x80000000 if flag31 else 0)
 
 
+DLC_LABELS = {1: "OoP", 2: "RoD", 3: "OoP+RoD"}       # bit 1 Origin of Pain, bit 2 Riders of Doom
+
+
+def track_dlc(trk):
+    """DLC packs a track needs (bit 1 Origin of Pain, bit 2 Riders of Doom), from its DLC0 chunk:
+    u32 pack bits of the DLC objects it uses, then the world it was built in (1 Paine Island,
+    2 Riders of Doom). PC and 360 track.trk: magic, header, LZMA props at 37, stream at 46."""
+    if not trk or len(trk) < 64 or trk[:4] not in (bytes.fromhex("deadbabe"), bytes.fromhex("cafeb00b")):
+        return 0
+    try:
+        p = trk[37]
+        dec = lzma.LZMADecompressor(lzma.FORMAT_RAW, filters=[{
+            "id": lzma.FILTER_LZMA1, "lc": p % 9, "lp": p // 9 % 5, "pb": p // 45,
+            "dict_size": struct.unpack_from("<I", trk, 38)[0]}])
+        body = dec.decompress(trk[46:], max_length=4096)
+    except (lzma.LZMAError, ValueError):
+        return 0
+    o = 0
+    while o + 8 <= len(body):
+        size = struct.unpack_from(">I", body, o + 4)[0]
+        if body[o:o + 4] == b"DLC0":
+            if size < 5 or o + 13 > len(body):
+                return 0
+            world = body[o + 12]
+            return (struct.unpack_from(">I", body, o + 8)[0] | (1 << (world - 1) if world in (1, 2) else 0)) & 3
+        o += 8 + size
+    return 0
+
+
 def blob_content_id(track_id, kind):
     return BLOB_ID_BASE + track_id * 4 + (1 if kind == TYPE_TRACK_BLOB else 2)
 
@@ -80,6 +114,11 @@ class TrackLibrary:
         self.lock = threading.Lock()
         self.db.execute(f"CREATE TABLE IF NOT EXISTS tracks ({self.COLUMNS})")
         self.db.execute("CREATE TABLE IF NOT EXISTS creators (pid INTEGER PRIMARY KEY, name TEXT)")
+        if "dlc" not in [r[1] for r in self.db.execute("PRAGMA table_info(tracks)")]:
+            self.db.execute("ALTER TABLE tracks ADD COLUMN dlc INTEGER")
+        # DLC packs each track needs, read once from its track file (shown as a label on its name).
+        for cid, trk in self.db.execute("SELECT content_id, track FROM tracks WHERE dlc IS NULL").fetchall():
+            self.db.execute("UPDATE tracks SET dlc=? WHERE content_id=?", (track_dlc(trk), cid))
         self.db.commit()
         self.reload()
 
@@ -88,7 +127,8 @@ class TrackLibrary:
         with self.lock:
             self.rows = self.db.execute(
                 "SELECT content_id, owner_pid, creator, name, folder, flags, p11, p12, p13, p14, uploaded, "
-                "downloads, rating, votes, length(metablob) FROM tracks").fetchall()
+                "downloads, rating, votes, dlc FROM tracks WHERE source IS NOT ?",
+                (SOURCE_PLAYER_PENDING,)).fetchall()
             self.by_id = {r[0]: r for r in self.rows}
             self.creators = dict(self.db.execute("SELECT pid, name FROM creators").fetchall())
             self.creator_uids = {self.creator_account_id(pid): pid for pid in self.creators}
@@ -105,10 +145,60 @@ class TrackLibrary:
         self.db.execute(f"INSERT OR REPLACE INTO tracks ({cols}) VALUES ({', '.join('?' * len(t))})",
                         tuple(t.values()))
 
+    # -- player uploads (UserGeneratedContent 2 / 3, UserStorage track + screenshot) --
+    def owner_of(self, content_id):
+        row = self.db.execute("SELECT owner_pid FROM tracks WHERE content_id=?", (content_id,)).fetchone()
+        return row[0] if row else None
+
+    def save_player_track(self, content_id, pid, creator, props, metablob, uploaded):
+        """Create (content_id 0) or update a player's track; returns its id, or None if the id
+        belongs to someone else. It stays hidden from Track Central until published."""
+        values = {k: v for k, _, v in props}
+        fields = dict(name=str(values.get(PROP_NAME) or "Untitled"), folder=str(values.get(PROP_FILE) or ""),
+                      flags=int(values.get(PROP_FLAGS) or 0), metablob=metablob, creator=creator,
+                      **{f"p{i}": int(values.get(i, -1)) for i in (11, 12, 13, 14)})
+        fields = {k: (v - (1 << 64) if isinstance(v, int) and v >= 1 << 63 else v) for k, v in fields.items()}
+        with self.lock:
+            if content_id:
+                if self.owner_of(content_id) != pid:
+                    return None
+                sets = ", ".join(f"{k}=?" for k in fields)
+                self.db.execute(f"UPDATE tracks SET {sets} WHERE content_id=?", (*fields.values(), content_id))
+            else:
+                top = self.db.execute("SELECT max(content_id) FROM tracks").fetchone()[0] or 0
+                content_id = max(top + 1, PLAYER_ID_BASE)
+                self.put(content_id=content_id, owner_pid=pid, uploaded=uploaded, downloads=0, rating=0,
+                         votes=0, source=SOURCE_PLAYER_PENDING, **fields)
+            self.db.commit()
+        return content_id
+
+    def save_player_blob(self, content_id, pid, kind, data):
+        column = {TYPE_TRACK_BLOB: "track", TYPE_SHOT_BLOB: "shot"}.get(kind)
+        with self.lock:
+            if column is None or self.owner_of(content_id) != pid:
+                return False
+            self.db.execute(f"UPDATE tracks SET {column}=? WHERE content_id=?", (data, content_id))
+            if kind == TYPE_TRACK_BLOB:
+                self.db.execute("UPDATE tracks SET dlc=? WHERE content_id=?", (track_dlc(data), content_id))
+            self.db.commit()
+        return True
+
+    def publish(self, content_id, pid):
+        """Show a player's track in Track Central once its track file has arrived."""
+        with self.lock:
+            done = self.db.execute("UPDATE tracks SET source=? WHERE content_id=? AND owner_pid=? "
+                                   "AND track IS NOT NULL", (SOURCE_PLAYER, content_id, pid)).rowcount
+            self.db.commit()
+        if done:
+            self.reload()
+        return bool(done)
+
     # -- serving --
     def properties(self, row):
         (cid, owner, creator, name, folder, flags, p11, p12, p13, p14, uploaded,
-         downloads, rating, votes, _) = row
+         downloads, rating, votes, dlc) = row
+        if dlc in DLC_LABELS:                 # the PC can't tell players a track needs DLC, so say it
+            name = f"{name} [{DLC_LABELS[dlc]}]"
         return [(PROP_DATE, 5, uploaded), (PROP_NAME, 4, name), (PROP_FILE, 4, folder),
                 (PROP_FLAGS, 6, flags), (11, 1, p11), (12, 1, p12), (13, 1, p13), (14, 1, p14),
                 (PROP_DOWNLOADS, 1, downloads), (PROP_RATING, 1, rating), (PROP_VOTES, 1, votes)]

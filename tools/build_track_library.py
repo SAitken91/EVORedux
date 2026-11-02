@@ -18,7 +18,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from track_library import TrackLibrary, flags_for  # noqa: E402
+from track_library import TrackLibrary, flags_for, track_dlc  # noqa: E402
 
 FILETIME_UNIX_EPOCH = 116444736000000000
 # Tracks that convert but don't play right on PC (content id: reason).
@@ -82,11 +82,35 @@ def creator_pid(package):
     return int(package[:16], 16) & 0xFFFFFFFF
 
 
+def dlc_sample(source, rows, count):
+    """The count best-rated converted tracks that need DLC (DLC objects or a DLC world)."""
+    picks = []
+    for r in rows:
+        if r["status"] != "ok":
+            continue
+        folder = os.path.join(source, r["package"])
+        try:
+            track = open(os.path.join(folder, "track.trk"), "rb").read()
+            if not track_dlc(track):
+                continue
+            m = parse_metadata(open(os.path.join(folder, "metadata.mda"), "rb").read())
+        except (OSError, ValueError, struct.error):
+            continue
+        if m["content_id"] in EXCLUDED or not 1 <= m["stars"] <= 5:
+            continue
+        picks.append(((-m["stars"], m["difficulty"] != 4, -min(m["votes"], 10_000_000)), r))
+    picks.sort(key=lambda p: p[0])
+    return [r for _, r in picks[:count]]
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("source")
     ap.add_argument("--db", default="track_library.db")
     ap.add_argument("--all", action="store_true", help="include tracks that use DLC objects")
+    ap.add_argument("--dlc-sample", type=int, metavar="N",
+                    help="add only the N best-rated tracks that need DLC (extreme ones first among equal "
+                         "ratings), e.g. to try DLC tracks on Track Central a batch at a time")
     args = ap.parse_args()
 
     lib = TrackLibrary(args.db)
@@ -100,8 +124,10 @@ def main():
             names[creator_pid(r["package"])][r["creator"] or "Unknown"] += 1
     for pid, counter in names.items():
         lib.set_creator(pid, counter.most_common(1)[0][0])
+    if args.dlc_sample:
+        rows = dlc_sample(args.source, rows, args.dlc_sample)
     for r in rows:
-        if r["status"] != "ok" or (r["dlc_objects"] not in ("0", "") and not args.all):
+        if r["status"] != "ok" or (r["dlc_objects"] not in ("0", "") and not (args.all or args.dlc_sample)):
             continue
         folder = os.path.join(args.source, r["package"])
         try:

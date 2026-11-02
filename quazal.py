@@ -606,13 +606,12 @@ class UserGeneratedContent:
     GET_CONTENT, GET_METADATA_BLOB = 4, 5     # (u64 id) -> UGCContent / buffer
     GET_WITH_BLOBS = 13                       # (list<u64> ids) -> list<UGCContentWithMetadataBlob>
     QUERY_WITH_BLOBS = 14                     # (u32 query, u32 offset, u32 count, list<property>)
-    VOID = {3, 6, 7, 8}                       # publish, download count, rate, report
+    SAVE_CONTENT = 2                          # (list<property>, buffer metadata blob, u64 id) -> u64 id
+    PUBLISH = 3                               # (u64 id)
+    VOID = {6, 7, 8}                          # download count, rate, report
     WRITE_SCORE = 10                          # (u64 trackId, u64 score, u64 descriptor)
     READ_BY_RANK = 11                         # (u64 trackId, u32 start, u32 count)
     READ_BY_PLAYERS = 12                      # (u64 trackId, list<u32> pids)
-    # Track info/blob replies (4, 5, 13) are structs not mapped yet: a placeholder body corrupted
-    # the client heap (crash dump: abort in free()), so they get an RMC error, which the game handles.
-    NOT_DECODED = {2}
     QRESULT_UGC_UNAVAILABLE = 0x80010001
     HISTORICAL_DATE = 1512691200.0            # 2017-12-08, when the archived boards were cached
 
@@ -758,14 +757,39 @@ class UserGeneratedContent:
                 self._write_stat_set(w, pid, *rows[pid])
             return rmc_response(self.PROTO, call_id, method, w.bytes())
 
+        if method in (self.SAVE_CONTENT, self.PUBLISH):
+            return self._upload_reply(conn, call_id, method, r, params)
         if method in self.VOID:
             return rmc_response(self.PROTO, call_id, method, b"")
         if method in self.EMPTY_LIST:
             return rmc_response(self.PROTO, call_id, method, Writer().u32(0).bytes())
-        if method in self.NOT_DECODED:
-            self.log(f"[ugc] method {method} not decoded yet -> error reply params={params.hex()}")
-            return rmc_error(self.PROTO, call_id, self.QRESULT_UGC_UNAVAILABLE)
         return None
+
+    def _upload_reply(self, conn, call_id, method, r, params):
+        """Track upload from the editor (RDVCreateContentTask): method 2 saves the track's details
+        and returns its id, then the game uploads the track file and screenshot to UserStorage
+        (types 0x80000003/4, property 101 = that id), then method 3 publishes it."""
+        if not self.library:
+            return rmc_error(self.PROTO, call_id, self.QRESULT_UGC_UNAVAILABLE)
+        try:
+            if method == self.SAVE_CONTENT:            # list<property>, buffer metadata blob, u64 id (0 = new)
+                props, blob, content_id = read_properties(r), r.buffer(), r.u64()
+            else:
+                content_id = r.u64()
+                ok = self.library.publish(content_id, conn.pid)
+                self.log(f"[ugc] publish track {content_id} pid={conn.pid} -> {'ok' if ok else 'refused'}")
+                if not ok:
+                    return rmc_error(self.PROTO, call_id, self.QRESULT_UGC_UNAVAILABLE)
+                return rmc_response(self.PROTO, call_id, method, b"")
+        except (struct.error, ValueError, IndexError) as e:
+            self.log(f"[ugc] method {method} request not understood ({e}) params={params.hex()}")
+            return rmc_error(self.PROTO, call_id, self.QRESULT_UGC_UNAVAILABLE)
+        name = self.accounts.display_name(conn.pid) or f"Player{conn.pid}"
+        saved = self.library.save_player_track(content_id, conn.pid, name, props, blob, quazal_datetime())
+        self.log(f"[ugc] save track {content_id} pid={conn.pid} props={props} blob={len(blob)} -> {saved}")
+        if saved is None:
+            return rmc_error(self.PROTO, call_id, self.QRESULT_UGC_UNAVAILABLE)
+        return rmc_response(self.PROTO, call_id, method, Writer().u64(saved).bytes())
 
 
 # ---- UserStorage (protocol 53): per-player content, e.g. ghost replays -----------
@@ -976,6 +1000,18 @@ class UserStorage:
                 if row is None:
                     return rmc_error(self.PROTO, call_id, QRESULT_NOT_IMPLEMENTED)
                 type_id, content_id, pid, props, data = row
+                track = next((v for p, _, v in json.loads(props) if p == PROP_BLOB_TRACK), None)
+                if type_id in (TYPE_TRACK_BLOB, TYPE_SHOT_BLOB) and self.library and track is not None:
+                    # A Track Central upload's track file / screenshot: kept with the track itself.
+                    stored = bool(ok and data is not None and self.library.save_player_blob(track, pid, type_id, data))
+                    self.db.execute("DELETE FROM user_content_pending WHERE pending_id=?", (pending_id,))
+                    self.db.commit()
+                    self.log(f"[storage] track upload {type_id:#x} track={track} pid={pid} -> "
+                             f"{'stored' if stored else 'refused'}")
+                    if not stored:
+                        return rmc_error(self.PROTO, call_id, QRESULT_NOT_IMPLEMENTED)
+                    return rmc_response(self.PROTO, call_id, method,
+                                        Writer().u32(type_id).u64(blob_content_id(track, type_id)).bytes())
                 if ok and data is not None:
                     if content_id:
                         # The game re-uploads its ghost after every finish, slower runs included.

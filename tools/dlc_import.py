@@ -439,6 +439,13 @@ def main():
     import dlc_rider_gear
     dlc_rider_gear.main(game)
     paint_dlc_ground(game)
+    if have_numpy():
+        step("giving the Desert Gear helmet's distance model its texture coordinates")
+        import dlc_lod_uvs
+        dlc_lod_uvs.install(game)
+        step("colour-coding the DLC items in the garage (red Origin of Pain, green Riders of Doom)")
+        import dlc_icon_tiles
+        dlc_icon_tiles.install(game)
     if not args.keep_work:
         shutil.rmtree(work, ignore_errors=True)
     step("all done - start the game and look for the DLC events on the world map")

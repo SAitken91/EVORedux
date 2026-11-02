@@ -1194,12 +1194,17 @@ __declspec(naked) void dlc_object_index_stub() {
 // 0x80a569, so DLC worlds drew their decal objects (sand, rock, weed patches) from the PC base table:
 // Buccaneer Bay's seabed came out as white tiles and sign lettering (RenderDoc: the terrain draw).
 // Both DLC packs ship the 360's own vtex/decalsObjects.dat (identical in the two packs, not the PC
-// file); the importer stages it as build\data\vtex\decalsObjects_dlc<N>.dat. DLC worlds use it when
-// it is there; base worlds keep the PC file.
+// file), and once a pack is loaded that name resolves to the pack's copy in every world: its cells
+// paint the 360 object layout, so base objects came out wrong (the Scorpion's rear fender red,
+// GitHub issue #2). The importer stages build\data\vtex\decalsObjects_dlc<N>.dat: dlc0 = the PC
+// table for base worlds, dlc1 / dlc2 = the PC table plus the pack's cells under DLC materials that
+// use base-area pages (the seabed). Each world uses its own when it is there.
 extern "C" const char* __cdecl dlc_decal_objects(DWORD world) {
     const char* original = "vtex/decalsObjects.dat";
-    if (world != 1 && world != 2) return original;
-    const char* selected = world == 1 ? "vtex/decalsObjects_dlc1.dat" : "vtex/decalsObjects_dlc2.dat";
+    if (world > 2) return original;
+    const char* selected = world == 1   ? "vtex/decalsObjects_dlc1.dat"
+                           : world == 2 ? "vtex/decalsObjects_dlc2.dat"
+                                        : "vtex/decalsObjects_dlc0.dat";
     char path[MAX_PATH];
     DWORD n = GetModuleFileNameA(nullptr, path, MAX_PATH);
     if (!n || n >= MAX_PATH) return original;

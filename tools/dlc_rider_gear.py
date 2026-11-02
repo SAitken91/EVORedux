@@ -8,7 +8,9 @@ Everything else is already in place: models (pack objectcollections), icons (pac
 names (pack localization).
 
   - Origin of Pain: its helmets, Team 1/2 jerseys and the DLC shorts. Jersey 301 and shorts 302
-    collide with the PC-exclusive back rims 301/302, so they become 439/440.
+    collide with the PC-exclusive back rims 301/302, so they become 441/440 (439, used by v1.5.6,
+    is Origin of Pain's BMX front light in pack1/items_bikes.xml; installs are moved to 441).
+    New ids are checked against every DLC item file as well as pack0/items.xml.
   - Riders of Doom: its helmets and torsos.
   - Base game: the Ultimate Endurance and Trials HD shirts. The PC's character_shirts_1.gfx is
     identical to the 360's (variations ue_shirt / hd_shirt) and both icons ship; only the item
@@ -39,7 +41,7 @@ SKIP = {
     'RIDER_PART_TORSO_TRON', 'RIDER_PART_TORSO_SAURON',                   # PC: cyber suit, ancient armor
     'RIDER_PART_HELMET_TOPHAT',                                           # PC: top hat
 }
-RENUMBER = {'RIDER_PART_DLC_SHIRT': 439, 'RIDER_PART_DLC_RIDING_SHORTS': 440}
+RENUMBER = {'RIDER_PART_DLC_SHIRT': 441, 'RIDER_PART_DLC_RIDING_SHORTS': 440}
 BASE_SHIRTS = (                                                           # from the 360 pack0/items.xml
     '<item id="58" name="RIDER_PART_UE_SHIRT" icon="char\\items\\items_shirt_ue.png" colorizable="0" '
     'price="0" medalreq="0" lisencereq="0" outfitset="8" collectionid="3326671378" variationid="512" '
@@ -69,11 +71,27 @@ def attr(tag, name):
     return m.group(1) if m else None
 
 
-def add_items(base, extra):
-    """base pack0/items.xml text plus the extra (bindname, tag) items; (text, names added)."""
+def item_ids(xml):
+    return {int(i) for i in re.findall(r'<item id="(\d+)"', strip_comments(xml))}
+
+
+def renumber_installed(base):
+    """Move items an earlier version numbered differently (RENUMBER) to their id; (text, names moved)."""
+    moved = []
+    for name, item_id in RENUMBER.items():
+        m = re.search(r'<item id="(\d+)"([^>]*\bname="%s")' % name, base)
+        if m and int(m.group(1)) != item_id:
+            base = base[:m.start(1)] + str(item_id) + base[m.end(1):]
+            moved.append(f'{name} {m.group(1)} -> {item_id}')
+    return base, moved
+
+
+def add_items(base, extra, taken=()):
+    """base pack0/items.xml text plus the extra (bindname, tag) items; (text, names added).
+    taken: item ids used elsewhere (the DLC packs' item files), never given to a new item."""
     live = strip_comments(base)
     names = set(re.findall(r'<item [^>]*\bname="([^"]+)"', live))
-    ids = {int(i) for i in re.findall(r'<item id="(\d+)"', live)}
+    ids = item_ids(base) | set(taken)
     added = []
     for bind, tag in extra:
         name = attr(tag, 'name')
@@ -103,15 +121,26 @@ def main(game):
     raw = file_data(d, named[ITEMS], decode_xmem=True)
     text = raw.decode('utf-8-sig')
     extra = [('SHIRT', tag) for tag in BASE_SHIRTS]
+    taken = set()                       # ids of the packs' own items (bike parts etc.), not their rider gear
     for folder, items in PACKS:
         configs = os.path.join(game, 'datapack', 'DLCContent', folder, 'data', 'configs.pak')
         if not os.path.exists(configs):
             continue
         cd, ce = read_pak(configs)
         cn = dict(names_of(cd, ce))
+        for name, entry in cn.items():
+            if re.fullmatch(r'pack\d+/items\w*\.xml', name):
+                xml = file_data(cd, entry, decode_xmem=True).decode('utf-8-sig')
+                taken |= item_ids(xml) - {int(attr(tag, 'id')) for _, tag in character_items(xml)}
         if items in cn:
             extra += character_items(file_data(cd, cn[items], decode_xmem=True).decode('utf-8-sig'))
-    text, added = add_items(text, extra)
+    text, moved = renumber_installed(text)
+    text, added = add_items(text, extra, taken)
+    clash = {int(attr(t, 'id')) for t in re.findall(r'<item [^>]*/>', strip_comments(text))
+             if attr(t, 'name') in RENUMBER} & taken
+    if clash:
+        raise ValueError(f'{ITEMS}: rider gear ids {sorted(clash)} are used by DLC items')
+    added += moved
     if not added:
         print(f'{ITEMS}: rider gear already listed')
         return []
