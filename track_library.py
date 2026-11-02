@@ -225,9 +225,12 @@ class TrackLibrary:
             if pid == PROP_FLAGS and value & GAME_TYPE_MASK:
                 rows = [r for r in rows if r[5] & value & GAME_TYPE_MASK]
             elif pid == PROP_NAME and value:
-                # Search text matches the track name or the creator's gamertag.
+                # Search text matches the track name, the creator's gamertag or the DLC label
+                # ("oop", "rod", "oop+rod", or "dlc" for every track that needs DLC).
                 text = str(value).lower()
-                rows = [r for r in rows if text in r[3].lower() or text in (r[2] or "").lower()]
+                tag = text.strip("[] ")
+                rows = [r for r in rows if text in r[3].lower() or text in (r[2] or "").lower()
+                        or r[14] in DLC_LABELS and tag and (tag == "dlc" or tag in DLC_LABELS[r[14]].lower())]
             elif pid == PROP_OWNER and value:
                 rows = [r for r in rows if r[1] == value]
             # PROP_DATE (feed time windows such as "this week") is ignored on purpose: the library
