@@ -29,9 +29,9 @@ leaderboards fill up again — let's bring the glory back to them.
 - ✅ **Online login** through the revival server
 - ✅ **Global and per-track leaderboards** for every track in the game
 - ✅ **Ghosts** — upload your best run, download and race other players' ghosts
-- ✅ **Track Central is back in the game** — Get Tracks, search and download over 1,600 Xbox 360
-  community tracks, with screenshots, ratings and the original creators (see
-  [Get Track Central tracks](#get-track-central-tracks))
+- ✅ **Track Central is back in the game** — Get Tracks, search and download over 2,100 Xbox 360
+  community tracks, with screenshots, ratings and the original creators, including 500 that use
+  the DLC (see [Get Track Central tracks](#get-track-central-tracks))
 - ✅ **Upload your own tracks** from the editor to Track Central, for everyone to find and download
 - ✅ **Track Central tracks you have installed** are playable, with leaderboards that include
   thousands of archived historical scores (see [Legacy spots](#legacy-spots-the-historical-scores))
@@ -44,7 +44,8 @@ leaderboards fill up again — let's bring the glory back to them.
 The aim is the full online experience, not just part of it:
 
 - 🔜 **Multiplayer** — online races with other players
-- 🔜 **The rest of Track Central** — the Xbox 360 tracks that use DLC objects (about 4,200 more)
+- 🔜 **The rest of Track Central** — the remaining Xbox 360 DLC tracks (about 3,700 more), added in
+  batches
 - 🔜 Everything else the original servers did, one piece at a time
 
 Progress is posted here as features come online.
@@ -107,9 +108,17 @@ the server admin to release your name (your scores and ghosts stay attached to i
 
 ## Get Track Central tracks
 
-**In the game:** open Track Central → **Get Tracks**. Over 1,600 Xbox 360 community tracks are
+**In the game:** open Track Central → **Get Tracks**. Over 2,100 Xbox 360 community tracks are
 there to browse (Most Downloaded, Highest Rated, New, RedLynx Picks) or search by track name or
 creator. Download one and it's in your Play Tracks list. This needs EVO Redux v1.5.2 or newer.
+
+**Xbox 360 DLC tracks:** 500 of them so far, added in batches. Their names end in **[OoP]** (needs
+Origin of Pain), **[RoD]** (needs Riders of Doom) or **[OoP+RoD]** (needs both); they need the DLC
+imported ([Xbox 360 DLC](#xbox-360-dlc)) and EVO Redux v1.5.8 or newer. Search **DLC**, **OoP** or
+**RoD** in Get Tracks to list them. What each batch added:
+
+- [Batch 1](docs/track_central_dlc_batch1.md) (2026-11-02): 300 five-star Extreme tracks
+- [Batch 2](docs/track_central_dlc_batch2.md) (2026-11-03): 200 top-rated Ninja, Extreme and Hard tracks
 
 **Share your own:** upload a track from the editor as on the original servers. It shows up in New
 and in search for everyone.
