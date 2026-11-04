@@ -9,6 +9,7 @@ struct VectorState {
     void* color_targets[1024];
     unsigned color_count;
     unsigned target_count, count, index, operation;
+    unsigned info_mode;              // object info: 0 position, 1 rotation, ... (native modes 3m..3m+2)
     int kind;
     bool reset, triple, evaluating, publishing;
     float initial[100], values[100];
@@ -78,12 +79,13 @@ void vector_compute(VectorState* s, void* visited, int depth) {
             s->values[k] = a + (b - a) * phase;
         }
     } else if (s->kind == 3) {
-        // Native ObjectInfo's first three modes return world position, including
-        // physics/group/player handling. It only reads target+3c and mode+40.
+        // Native ObjectInfo (0x62b410) answers in groups of three: modes 0-2 world position
+        // (with physics/group/player handling), 3-5 rotation in degrees, then the axes. The
+        // record's mode byte picks the group. It only reads target+3c and mode+40.
         BYTE native[0x44] = {};
         *(void**)(native + 0x3c) = resolve_dlc_retarget(s->reference);
         for (unsigned k = 0; k < 3; ++k) {
-            *(unsigned*)(native + 0x40) = k;
+            *(unsigned*)(native + 0x40) = 3 * s->info_mode + k;
             s->values[k] = ((float(__fastcall*)(void*, void*))GA(0x62b410))(native, nullptr);
         }
     }
@@ -219,11 +221,24 @@ int vector_read(VectorState* s, void* stream, void* objects, void* selected, int
     if (s->kind == 0) {
         s->reset = r.u8() != 0;
         DWORD type = vector_u32(stream);
-        s->count = r.u16();
-        if (!s->count || s->count > 100 || type != 0) return 0x401;
-        for (unsigned k = 0; k < s->count; ++k) s->initial[k] = s->values[k] = vector_float(stream);
+        unsigned stored = r.u16();
+        if (stored > 4096) return 0x401;
+        // The shipped DLC tracks all use type 0, at most 100 values and no interpolation. 360
+        // custom tracks also use other types and interpolation (4 of the first 300 library tracks
+        // failed to load): read the record whole and keep its values; interpolation isn't run.
+        s->count = stored < 100 ? stored : 100;
+        for (unsigned k = 0; k < stored; ++k) {
+            float v = vector_float(stream);
+            if (k < s->count) s->initial[k] = s->values[k] = v;
+        }
         BYTE interpolate = r.u8(); vector_float(stream); r.u8(); vector_float(stream); vector_float(stream);
-        if (interpolate) return 0x401;
+        if (!s->count) s->count = 1;            // keep consumers in range
+        if (type != 0 || interpolate) {
+            char line[112];
+            sprintf_s(line, "dlc runtime: vector with type %lu, %u values%s read as static values", type,
+                      stored, interpolate ? ", interpolated," : "");
+            shim_log(line);
+        }
     } else if (s->kind == 1) {
         s->count = 1; s->index = vector_u32(stream); s->reference = vector_ref(stream, objects);
     } else if (s->kind == 2) {
@@ -241,7 +256,8 @@ int vector_read(VectorState* s, void* stream, void* objects, void* selected, int
         s->count = 3;
     } else if (s->kind == 3) {
         s->count = 3;
-        if (r.u8() != 0) return 0x401;
+        s->info_mode = r.u8();       // 360 custom tracks use 1 (rotation), e.g. Way Of Your Face
+        if (s->info_mode > 8) return 0x401;
         s->reference = vector_ref(stream, objects);
     }
     return 0;

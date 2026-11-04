@@ -758,8 +758,20 @@ extern "C" int __cdecl skip_dlc_chunk(void* stream, const BYTE* frame, BYTE* tra
     DWORD id = *(const DWORD*)(frame + 0x10);
     DWORD size = *(const DWORD*)(frame + 0x18);
     if (id != 0x30544552 && id != 0x31494d45 && id != 0x33524f50) return 0;   // "RET0" "EMI1" "POR3"
-    if (id == 0x30544552 && g_retarget_hook_enabled)
-        return load_dlc_retargets(stream, track, size) ? 1 : 0;
+    typedef DWORD(__fastcall* StreamTellFn)(void* stream, void* edx);              // vtable +0x4c
+    StreamTellFn tell = *(StreamTellFn*)(*(const BYTE* const*)stream + 0x4c);
+    if (id == 0x30544552 && g_retarget_hook_enabled) {
+        DWORD start = tell(stream, nullptr);
+        if (load_dlc_retargets(stream, track, size)) return 1;
+        // Community tracks use retargetor modes the runtime doesn't support (only the shipped
+        // enabled/index-0 layout is): read past the rest of the chunk and load the track without
+        // its retargetors, instead of failing it ("Track loading error", e.g. Hybrid Theory).
+        g_retarget_count = 0;
+        DWORD used = tell(stream, nullptr) - start;
+        if (used > size) return 0;
+        size -= used;
+        shim_log("dlc fix: retargetors in an unsupported layout; track loads without them");
+    }
     static BYTE scratch[4096];
     StreamReadFn read = *(StreamReadFn*)(*(const BYTE* const*)stream + 0x34);
     for (DWORD left = size; left;) {
@@ -832,6 +844,34 @@ __declspec(naked) void tri_mismatch_stub() {
         mov eax, ebp
         ret
     }
+}
+
+// ---- 7b. SEE chunk read failure (stopgap) -----------------------------------------------------
+// The SEE handler (0x4b8060) reads the track's sequences (0x5dd920, one 0x5d9f00 record each) and
+// fails the whole track with 0x401 when a record doesn't parse or the chunk doesn't end where the
+// records do. Some 360 community tracks (Insanity by Xx FaTaL sNiPeS) have a sequence the PC reader
+// rejects, so they couldn't be played at all. The loader's call (0x4eaa43) now goes through this
+// wrapper: on failure it seeks to the chunk end and loads the track without the sequences that
+// didn't parse. PC tracks and every sequence that reads never take this path.
+const uintptr_t SEE_LOAD_CALL = GA(0x4eaa43);        // call 4B8060h (TrackLoader::loadChunks, "SEE")
+const unsigned char SEE_LOAD_CALL_ORIG[5] = {0xe8, 0x18, 0xd6, 0xfc, 0xff};
+typedef DWORD(__fastcall* SeeLoadFn)(void* track, void* edx, DWORD version, void* stream, DWORD size, DWORD skip);
+volatile LONG g_see_failures;
+
+DWORD __fastcall load_see_chunk(void* track, void* edx, DWORD version, void* stream, DWORD size, DWORD skip) {
+    typedef DWORD(__fastcall* TellFn)(void* stream, void* edx);              // vtable +0x4c
+    typedef void(__fastcall* SeekFn)(void* stream, void* edx, DWORD to);     // vtable +0x3c
+    DWORD start = (*(TellFn*)(*(const BYTE* const*)stream + 0x4c))(stream, nullptr);
+    DWORD result = ((SeeLoadFn)GA(0x4b8060))(track, edx, version, stream, size, skip);
+    if (!result) return 0;
+    (*(SeekFn*)(*(const BYTE* const*)stream + 0x3c))(stream, nullptr, start + size);
+    if (InterlockedIncrement(&g_see_failures) <= 50) {
+        char line[128];
+        sprintf_s(line, "dlc fix: SEE%lu chunk didn't read (%lu, %lu bytes); track loads without those sequences",
+                  version, result, size);
+        shim_log(line);
+    }
+    return 0;
 }
 
 // All four trigger-reading passes converge here. Record the failing object's
@@ -1251,6 +1291,7 @@ __declspec(naked) void dlc_decal_objects_stub() {
 // (emulated) and accepting only layouts after which all records parse to the exact chunk end:
 // all 82 DLC tracks walk cleanly (hang_analysis/tri_walker). Ops: b u8, h u16, i/f 4 bytes,
 // r reference (u16; 0xfffe -> 4 more bytes), N u16 count + count floats, L reference list,
+// M u16 mode (remembered), T end of record unless mode == 2,
 // C datasource connection list (u16 n; n x (r, u16 m, m x u16)), E event/filter base
 // (u8, u16 n, n x r), F one float per E input.
 struct DlcNode { DWORD model[2]; char kind; const char* name; const char* layout; };
@@ -1259,7 +1300,9 @@ const DlcNode DLC_NODES[] = {
     {{0x3dcd5e53, 0x3fe5bf25}, 'd', "get_vector", "Cir"},
     {{0x5e090f60, 0xea274c4e}, 'd', "vector_envelope", "Cbbrriii"},
     {{0x673985ee, 0x9d0b406c}, 'd', "vector_object_info", "Cbr"},
-    {{0x93400eb4, 0xa0ab77c9}, 'd', "vector_operator", "Cbhirrhbfbfbff"},
+    // The u16 after the base selects the operation: only mode 2 carries the flags/constants tail
+    // (the 360 community track Way Of Your Face uses mode 1, record ending after the two refs).
+    {{0x93400eb4, 0xa0ab77c9}, 'd', "vector_operator", "CbMirrThbfbfbff"},
     {{0xa5c066dd, 0xb7cf0dbc}, 'e', "set_vector", "EiiiihL"},
     {{0xaee65e01, 0x8b49a0d7}, 'f', "switch_filter", "EF"},
     // Read only (its effect is not implemented). Only 360 custom tracks use it: 15 of them, each
@@ -1306,11 +1349,13 @@ struct DlcReader {
 // Consume one DLC record; 0 on success, 0x401 on a short stream or an implausible count.
 int dlc_consume(void* stream, const char* layout) {
     DlcReader r{stream};
-    WORD inputs = 0;
+    WORD inputs = 0, mode = 0;
     for (const char* op = layout; *op && r.ok; ++op) {
         switch (*op) {
         case 'b': r.skip(1); break;
         case 'h': r.skip(2); break;
+        case 'M': mode = r.u16(); break;
+        case 'T': if (mode != 2) return r.ok ? 0 : 0x401; break;
         case 'i': case 'f': r.skip(4); break;
         case 'r': r.ref(); break;
         case 'N': { WORD n = r.u16(); if (n > 4096) return 0x401; r.skip(4u * n); break; }
@@ -1871,6 +1916,9 @@ void start_dlc_fixes() {
     shim_log(patch_call(TRI_MISMATCH, TRI_MISMATCH_ORIG, 5, (void*)&tri_mismatch_stub)
                  ? "dlc fix: TRI length mismatches load the track anyway (stopgap)"
                  : "dlc fix: TRI mismatch patch skipped (unexpected code)");
+    shim_log(patch_call(SEE_LOAD_CALL, SEE_LOAD_CALL_ORIG, 5, (void*)&load_see_chunk)
+                 ? "dlc fix: SEE chunks that don't read load the track anyway (stopgap)"
+                 : "dlc fix: SEE chunk patch skipped (unexpected code)");
     start_dlc_nodes();
     start_retarget_runtime();
     start_particle_diagnostic();
