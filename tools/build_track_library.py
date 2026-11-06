@@ -7,11 +7,20 @@ conversion_report.csv). Tracks that need DLC objects are left out until the engi
 Each track keeps its own Track Central id (the one in its folder name and metadata), so players
 who installed the same tracks from the pack already have them.
 
+--pc-archive reads PC Track Central tracks instead (folders as the game saves them, e.g. the
+community's TrialsEvo-PCTC archive; no report file). PC tracks only record their creator's original
+account number, so they are listed under the legacy range (LEGACY_PID_BASE + number, shown as
+Legacy#<number> like the historical scores): resolving original PC pids made the client hide installed
+Track Central tracks (see quazal.legacy_board_pid). --skip-db leaves out ids another library already
+has (two PC ids are also Xbox 360 ids).
+
 Usage: python tools/build_track_library.py <converted tracks folder> [--db track_library.db] [--all]
+       python tools/build_track_library.py <PC tracks folder> --pc-archive [--skip-db live.db]
 """
 import argparse
 import csv
 import os
+import sqlite3
 from collections import Counter, defaultdict
 import struct
 import sys
@@ -21,6 +30,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from track_library import TrackLibrary, flags_for, track_dlc  # noqa: E402
 
 FILETIME_UNIX_EPOCH = 116444736000000000
+LEGACY_PID_BASE = 2_000_000_000          # quazal.LEGACY_PID_BASE
 # Tracks that convert but don't play right on PC (content id: reason).
 EXCLUDED = {
     0x21a6b: "Tony Hawk's PS HD (redlynxlive): TRIg trigger chunk, map breaks on PC",
@@ -82,6 +92,23 @@ def creator_pid(package):
     return int(package[:16], 16) & 0xFFFFFFFF
 
 
+def pc_archive_rows(source):
+    """Report-style rows for PC Track Central folders (creator = original PC account number)."""
+    rows = []
+    for package in sorted(os.listdir(source)):
+        folder = os.path.join(source, package)
+        if not os.path.isfile(os.path.join(folder, "metadata.mda")):
+            continue
+        try:
+            name = open(os.path.join(folder, "displayname"), "rb").read().decode("utf-8", "replace").strip(chr(0))
+        except OSError:
+            name = ""
+        pid = LEGACY_PID_BASE + creator_pid(package)
+        rows.append({"status": "ok", "creator": f"Legacy#{pid - LEGACY_PID_BASE}", "track": name,
+                     "package": package, "dlc_objects": "0", "owner": pid})
+    return rows
+
+
 def dlc_sample(source, rows, count):
     """The count best-rated converted tracks that need DLC (DLC objects or a DLC world)."""
     picks = []
@@ -111,19 +138,26 @@ def main():
     ap.add_argument("--dlc-sample", type=int, metavar="N",
                     help="add only the N best-rated tracks that need DLC (extreme ones first among equal "
                          "ratings), e.g. to try DLC tracks on Track Central a batch at a time")
+    ap.add_argument("--pc-archive", action="store_true", help="source holds PC Track Central track folders")
+    ap.add_argument("--skip-db", metavar="DB", help="leave out content ids this library database already has")
     args = ap.parse_args()
 
     lib = TrackLibrary(args.db)
-    report = os.path.join(args.source, "conversion_report.csv")
     added = skipped = 0
-    rows = list(csv.DictReader(open(report, encoding="utf-8")))
-    # One name per creator pid: the archive's most common creator folder for that XUID.
-    names = defaultdict(Counter)
-    for r in rows:
-        if r["status"] == "ok":
-            names[creator_pid(r["package"])][r["creator"] or "Unknown"] += 1
-    for pid, counter in names.items():
-        lib.set_creator(pid, counter.most_common(1)[0][0])
+    skip = set()
+    if args.skip_db:
+        skip = {r[0] for r in sqlite3.connect(args.skip_db).execute("SELECT content_id FROM tracks")}
+    if args.pc_archive:
+        rows = pc_archive_rows(args.source)       # legacy-range creators: quazal names them itself
+    else:
+        rows = list(csv.DictReader(open(os.path.join(args.source, "conversion_report.csv"), encoding="utf-8")))
+        # One name per creator pid: the archive's most common creator folder for that XUID.
+        names = defaultdict(Counter)
+        for r in rows:
+            if r["status"] == "ok":
+                names[creator_pid(r["package"])][r["creator"] or "Unknown"] += 1
+        for pid, counter in names.items():
+            lib.set_creator(pid, counter.most_common(1)[0][0])
     if args.dlc_sample:
         rows = dlc_sample(args.source, rows, args.dlc_sample)
     for r in rows:
@@ -142,18 +176,23 @@ def main():
             print(f"skip {r['track']}: {EXCLUDED[m['content_id']]}")
             skipped += 1
             continue
+        if m["content_id"] in skip:
+            print(f"skip {r['track']}: id {m['content_id']} already in {args.skip_db}")
+            skipped += 1
+            continue
         uploaded = (m["date"] - FILETIME_UNIX_EPOCH) / 1e7
         if not 1262304000 < uploaded < 1893456000:      # outside 2010..2030: unknown
             uploaded = 1356998400
         stars = m["stars"] if 1 <= m["stars"] <= 5 else 0
-        lib.put(content_id=m["content_id"], owner_pid=creator_pid(r["package"]),
+        lib.put(content_id=m["content_id"], owner_pid=r.get("owner") or creator_pid(r["package"]),
                 creator=r["creator"], name=r["track"], folder=r["package"],
                 flags=flags_for(m["game_type"], m["difficulty"], m["flag31"]),
                 p11=m["ints"][0], p12=m["ints"][1], p13=m["ints"][2], p14=m["ints"][3],
                 uploaded=quazal_datetime(uploaded),
                 downloads=m["downloads"] if m["downloads"] < 100_000_000 else 0,
                 rating=stars * 20, votes=m["votes"] if m["votes"] < 10_000_000 else 0,
-                source="xbox360", metablob=metadata_blob(m), track=track, shot=shot)
+                source="pc" if args.pc_archive else "xbox360", metablob=metadata_blob(m), track=track,
+                shot=shot)
         added += 1
     lib.db.commit()
     lib.reload()

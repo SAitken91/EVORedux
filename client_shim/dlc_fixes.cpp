@@ -1828,6 +1828,10 @@ void start_dlc_fixes() {
     shim_log(patch_jmp(GA(0x6018b9), trigger_return, 7, (void*)&trigger_failure_stub)
                  ? "trigger failure diagnostics enabled"
                  : "trigger failure diagnostics skipped (unexpected code)");
+    // The discontinued Uplay/Gold Edition rewards (top hat, ancient armor, space suit, ...) are
+    // base-game items: unlock them for players without the DLC too, who otherwise only get them
+    // while Ubisoft Connect is online.
+    start_private_bonus_gear();
     // TRIl is also used by 360 tracks containing only base objects. Their player-state and
     // impulse-counter extensions must be consumed even on a PC with no DLCContent directory.
     if (!dlc_present()) {
@@ -1883,7 +1887,6 @@ void start_dlc_fixes() {
     else
         shim_log("dlc fix: DLC bikes patch skipped (unexpected code)");
     start_audio_garage_fix();
-    start_private_bonus_gear();
     start_hd_shirts_fix();
     start_aerial_architect_fix();
     unsigned char collections_call[5] = {0xE8};

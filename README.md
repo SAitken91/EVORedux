@@ -29,9 +29,10 @@ leaderboards fill up again — let's bring the glory back to them.
 - ✅ **Online login** through the revival server
 - ✅ **Global and per-track leaderboards** for every track in the game
 - ✅ **Ghosts** — upload your best run, download and race other players' ghosts
-- ✅ **Track Central is back in the game** — Get Tracks, search and download over 2,100 Xbox 360
-  community tracks, with screenshots, ratings and the original creators, including 500 that use
-  the DLC (see [Get Track Central tracks](#get-track-central-tracks))
+- ✅ **Track Central is back in the game** — Get Tracks, search and download over 2,800 community
+  tracks with screenshots and ratings: over 2,100 from the Xbox 360 (with their original creators,
+  including 500 that use the DLC) and 692 from the original PC Track Central (see
+  [Get Track Central tracks](#get-track-central-tracks))
 - ✅ **Upload your own tracks** from the editor to Track Central, for everyone to find and download
 - ✅ **Track Central tracks you have installed** are playable, with leaderboards that include
   thousands of archived historical scores (see [Legacy spots](#legacy-spots-the-historical-scores))
@@ -108,7 +109,7 @@ the server admin to release your name (your scores and ghosts stay attached to i
 
 ## Get Track Central tracks
 
-**In the game:** open Track Central → **Get Tracks**. Over 2,100 Xbox 360 community tracks are
+**In the game:** open Track Central → **Get Tracks**. Over 2,800 community tracks are
 there to browse (Most Downloaded, Highest Rated, New, RedLynx Picks) or search by track name or
 creator. Download one and it's in your Play Tracks list. This needs EVO Redux v1.5.2 or newer.
 
@@ -126,18 +127,17 @@ and in search for everyone.
 Tip: download the tracks you want rather than installing thousands by hand — the Play Tracks page
 loads faster with fewer tracks installed.
 
-**The PC archive:** the community also has an archive of **about 700 of the best-rated PC Track
-Central tracks**, shared by Scruffy McGuffy on the Steam forums:
+**The PC archive:** 692 of the best-rated tracks from the original PC Track Central are in Get
+Tracks too, from the community archive shared by Scruffy McGuffy on the Steam forums
+([Archive of Track Central tracks](https://steamcommunity.com/app/220160/discussions/0/1680315447969304289/)).
+They're base-game tracks, no DLC needed: [the full list](docs/track_central_pc_archive.md). The
+original PC servers only kept each creator's account number, so their creators show as
+**`Legacy#<number>`**.
 
-**[Archive of Track Central tracks (Steam discussion)](https://steamcommunity.com/app/220160/discussions/0/1680315447969304289/)**
-
-1. Download the archive from the link in that thread.
-2. Extract it into `Documents\Ubisoft\Trials Evolution Gold Edition\SavedGames`.
-3. Start the game: the tracks show up under Track Central.
-
-With EVO Redux installed they're **playable with working leaderboards**, including the original
-scores from before the shutdown ([Legacy spots](#legacy-spots-the-historical-scores)). Set a
-time and you're on the board with them.
+They come with **working leaderboards**, including the original scores from before the shutdown
+([Legacy spots](#legacy-spots-the-historical-scores)). Set a time and you're on the board with
+them. Already installed the archive by hand? Nothing changes: they're the same tracks with the
+same boards.
 
 ---
 
