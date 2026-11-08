@@ -52,6 +52,8 @@ included: you need the package files dumped from your own Xbox 360.
    7 GB of free space while it works.
 If it fails: "Access denied" -> right-click IMPORT_DLC.bat -> Run as administrator. Running it
 again is safe. Each run saves dlc_import_log.txt here; post it when asking for help.
+After updating EVO Redux, double-click UPDATE_DLC.bat: it applies the latest DLC fixes to the
+DLC you already imported in a minute or two, without your DLC files.
 
 
 UNINSTALL

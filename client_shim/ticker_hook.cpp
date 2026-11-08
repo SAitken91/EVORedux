@@ -190,6 +190,80 @@ BOOL CALLBACK find_game_window(HWND hwnd, LPARAM out) {
     return TRUE;
 }
 
+// Frame watch: when the main loop stops for 20 s (a player's "frozen on the world map" report,
+// GitHub issue #2), log where the main thread is: its instruction pointer and the game-code return
+// addresses on its stack, no memory contents. The thread is resumed before anything is logged
+// (it may hold the heap lock). Repeats at most twice per stall; a line notes when frames resume.
+volatile DWORD g_main_frame_tick;
+
+bool frame_watch_return(DWORD v) {
+    if (v < game_text_start() || v >= game_text_end()) return false;
+    __try {
+        const unsigned char* p = (const unsigned char*)v;
+        if (p[-5] == 0xE8) {
+            DWORD to = v + *(const int*)(p - 4);
+            return to >= game_text_start() && to < game_text_end();
+        }
+        if (p[-6] == 0xFF && p[-5] == 0x15) return true;
+        if (p[-2] == 0xFF && (p[-1] & 0x38) == 0x10) return true;
+        if (p[-3] == 0xFF && (p[-2] & 0xF8) == 0x50 && (p[-2] & 7) != 4) return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    return false;
+}
+
+DWORD WINAPI frame_watch(LPVOID param) {
+    DWORD tid = (DWORD)(uintptr_t)param;
+    int reports = 0;
+    DWORD stalled_since = 0;
+    for (;;) {
+        Sleep(5000);
+        DWORD last = g_main_frame_tick, now = GetTickCount();
+        if (!last) continue;
+        if (now - last < 20000) {
+            if (stalled_since) {
+                char line[120];
+                sprintf_s(line, "frame watch: main loop running again after %lu s", (now - stalled_since) / 1000 + 20);
+                shim_log(line);
+            }
+            stalled_since = 0;
+            reports = 0;
+            continue;
+        }
+        if (!stalled_since) stalled_since = last + 20000;
+        if (reports >= 2 || (reports && now - stalled_since < 40000)) continue;
+        HANDLE t = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT, FALSE, tid);
+        if (!t) return 0;
+        char line[512];
+        int n = sprintf_s(line, "frame watch: no frame for %lu s; main thread %lu (game at %p)", (now - last) / 1000, tid,
+                        (void*)GetModuleHandleA(nullptr));
+        if (SuspendThread(t) != (DWORD)-1) {
+            CONTEXT c = {};
+            c.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
+            if (GetThreadContext(t, &c)) {
+                n += sprintf_s(line + n, sizeof line - n, " eip=%08lx stack:", c.Eip);
+                __try {
+                    const DWORD* sp = (const DWORD*)c.Esp;
+                    for (int i = 0, found = 0; i < 4096 && found < 24; i++)
+                        if (frame_watch_return(sp[i])) {
+                            n += sprintf_s(line + n, sizeof line - n, " %08lx", sp[i]);
+                            found++;
+                        }
+                } __except (EXCEPTION_EXECUTE_HANDLER) {
+                }
+            }
+            ResumeThread(t);
+        }
+        CloseHandle(t);
+        shim_log(line);
+        reports++;
+    }
+}
+
+void start_frame_watch(DWORD main_thread) {
+    if (HANDLE w = CreateThread(nullptr, 0, frame_watch, (LPVOID)(uintptr_t)main_thread, 0, nullptr)) CloseHandle(w);
+}
+
 void dlc_frame_main() {
     static DWORD update_thread, window_thread;
     DWORD me = GetCurrentThreadId();
@@ -200,7 +274,6 @@ void dlc_frame_main() {
         shim_log(line);
     }
     g_dlc_frames++;
-    if (g_dlc_state == 2) return;
     if (!window_thread) {
         if (g_dlc_frames % 30) return;                       // look for the window now and then
         EnumWindows(find_game_window, (LPARAM)&window_thread);
@@ -208,7 +281,10 @@ void dlc_frame_main() {
         char line[120];
         sprintf_s(line, "dlc: game window thread %lu", window_thread);
         shim_log(line);
+        start_frame_watch(window_thread);
     }
+    if (me == window_thread) g_main_frame_tick = GetTickCount();
+    if (g_dlc_state == 2) return;
     if (me != window_thread) return;
     // The menu text hooks are not a reliable signal (a player can reach Single Player before the
     // ticker is ever asked for). maybe_start_dlc's own readiness checks (signed in, event manager

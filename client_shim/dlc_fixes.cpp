@@ -639,10 +639,16 @@ void start_trigger_trace() {
 }
 
 
-// RET0 has one record per retargetor, in OBJX order. The shipped tracks all use
-// enabled/index mode with an initial index of zero. Other modes remain unsupported.
+// RET0 has one record per retargetor, in OBJX order: u8 enabled, u8 mode, u8 slot mask, i32 initial
+// index, then five object references. TU3's resolver (825560d0) reads mode at +8, index at +c and
+// mask at +10: mode 0 picks the one slot at the (wired, one-based) index; mode 1 picks every slot
+// whose mask bit is set. The shipped tracks only use mode 0 with index 0; community tracks such as
+// Hybrid Theory use mode 1 (60 of its 116 records). The PC resolves to one object, so mode 1 takes
+// the first set slot that has a target (all but 4 of Hybrid Theory's mode-1 records have at most
+// one). Mode and mask live beside the records so the record layout stays as the tests expect.
 struct DlcRetarget { void* owner; void* targets[5]; };
 DlcRetarget g_retargets[128];
+BYTE g_retarget_mode[128], g_retarget_mask[128];
 unsigned g_retarget_count;
 bool g_retarget_hook_enabled;
 
@@ -658,6 +664,7 @@ bool load_dlc_retargets(void* stream, BYTE* track, DWORD size) {
     void** owners = *(void***)(objects + 8);
     if (count > 32768 || (!owners && count)) return false;
     g_retarget_count = 0;
+    unsigned masked = 0, multi = 0;
     DWORD start = ((DWORD(__fastcall*)(void*, void*))(*(DWORD**)stream)[0x4c / 4])(stream, nullptr);
     typedef void*(__cdecl* RefRead)(void*, void*, int);
     typedef int(__fastcall* RawRead)(void*, void*, void*, int);
@@ -667,16 +674,25 @@ bool load_dlc_retargets(void* stream, BYTE* track, DWORD size) {
         if (g_retarget_count == 128) return false;
         BYTE prefix[7];
         if (read(stream, nullptr, prefix, sizeof prefix) != sizeof prefix) return false;
-        const BYTE shipped[7] = {1,0,0,0,0,0,0};
-        if (memcmp(prefix, shipped, sizeof prefix)) return false;
+        // enabled, mode 0 or 1, initial index 0 (the only index any track uses)
+        if (prefix[0] != 1 || prefix[1] > 1 || prefix[3] || prefix[4] || prefix[5] || prefix[6]) return false;
+        g_retarget_mode[g_retarget_count] = prefix[1];
+        g_retarget_mask[g_retarget_count] = prefix[2];
         DlcRetarget& r = g_retargets[g_retarget_count++];
         r.owner = owners[k];
         for (int j = 0; j < 5; ++j) r.targets[j] = ((RefRead)GA(0x4d06b0))(stream, objects, 0);
+        if (prefix[1] == 1) {
+            ++masked;
+            int set = 0;
+            for (int j = 0; j < 5; ++j) if ((prefix[2] >> j & 1) && r.targets[j]) ++set;
+            if (set > 1) ++multi;
+        }
     }
     DWORD end = ((DWORD(__fastcall*)(void*, void*))(*(DWORD**)stream)[0x4c / 4])(stream, nullptr);
     if (end - start != size) { g_retarget_count = 0; return false; }
-    char line[96];
-    sprintf_s(line, "dlc runtime: loaded %u retargetors (%lu bytes)", g_retarget_count, size);
+    char line[160];
+    sprintf_s(line, "dlc runtime: loaded %u retargetors (%lu bytes; %u mask mode, %u with several targets)",
+              g_retarget_count, size, masked, multi);
     shim_log(line);
     return true;
 }
@@ -689,9 +705,18 @@ extern "C" void* __cdecl resolve_dlc_retarget(void* object) {
         for (unsigned j = 0; j < depth; ++j) if (visited[j] == object) return nullptr;
         visited[depth++] = object;
         const DlcRetarget* record = nullptr;
+        unsigned at = 0;
         for (unsigned j = 0; j < g_retarget_count; ++j)
-            if (g_retargets[j].owner == object) { record = &g_retargets[j]; break; }
+            if (g_retargets[j].owner == object) { record = &g_retargets[j]; at = j; break; }
         if (!record) return nullptr;
+        if (g_retarget_mode[at] == 1) {                   // mask mode: first set slot with a target
+            void* chosen = nullptr;
+            for (int j = 0; j < 5 && !chosen; ++j)
+                if (g_retarget_mask[at] >> j & 1) chosen = record->targets[j];
+            nt_trace_retarget(object, -1.0f, chosen);
+            object = chosen;
+            continue;
+        }
         void* input = selector_input(object, DLC_PROPERTY_BASE + 552);
         // Data sources are evaluated on demand: refresh the input before reading its value.
         if (input) ((void(__fastcall*)(void*, void*, int))GA(0x621ab0))(input, nullptr, 0);

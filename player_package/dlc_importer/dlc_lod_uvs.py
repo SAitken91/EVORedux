@@ -4,12 +4,16 @@ distance model.
 The helmet model has two levels of detail. In the shipped data the far one ("Default-lod1") has u = v = 0
 on all 392 vertices, so in a race, where the rider is small enough for that model, every pixel samples one
 texel and the hat shows as a flat tan blob (GitHub issue #2); the garage close-up uses the detailed model
-and looks right. Each far-model vertex gets the coordinates of the closest point on the detailed model
-(nearest triangle, barycentric, among triangles facing the same way); nothing else in the file changes.
+and looks right. The far model gets texture coordinates from the detailed one, a triangle at a time: the
+detailed model's texture is laid out in separate pieces (UV islands), each far triangle is given the piece
+under its centre, and its corners take the coordinates of the closest points on that piece. A far vertex
+shared by triangles on different pieces is duplicated, one copy per piece. (v1.5.7 mapped each vertex on
+its own; a triangle whose corners landed on different pieces then stretched across the texture and
+showed yellow stripes, GitHub issue #2, so those far levels are rebuilt.)
 
 Mesh layout (.mdl, same on Xbox and PC): per level, u32 5bd7085d, u16 vertex count, u32 vertex bytes,
 28-byte vertices (f16 position xyz, normal xyz, uv, bone weight, five more f16), then u32 triangle count
-and u16 indices.
+and u16 indices. Nothing in the file points into a level, so a level may grow.
 
 Usage: python dlc_lod_uvs.py GAME_DIR    (patches the installed Origin of Pain data.pak; backup kept once)
 """
@@ -48,7 +52,7 @@ def levels(mdl):
 
 
 def closest_uv(p, n, verts, tris):
-    """uv at the closest point to p on triangles whose normal agrees with n."""
+    """(uv, distance) at the closest point to p on triangles whose normal agrees with n."""
     a, b, c = (verts[tris[:, k], 0:3] for k in range(3))
     tn = np.cross(b - a, c - a)
     facing = (tn @ n) > 0
@@ -65,28 +69,130 @@ def closest_uv(p, n, verts, tris):
     dist = ((q - p) ** 2).sum(1) + np.where(facing, 0, 1e3)
     i = dist.argmin()
     uv = verts[tris[i]][:, UV:UV + 2]
-    return uv[0] * (1 - v[i] - w[i]) + uv[1] * v[i] + uv[2] * w[i]
+    return uv[0] * (1 - v[i] - w[i]) + uv[1] * v[i] + uv[2] * w[i], dist[i]
+
+
+def islands(tris, count):
+    """Island number per triangle: triangles sharing a vertex are on the same texture piece."""
+    parent = list(range(count))
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    for a, b, c in tris:
+        ra, rb, rc = find(a), find(b), find(c)
+        parent[rb] = ra
+        parent[rc] = ra
+    return np.array([find(t[0]) for t in tris])
+
+
+def stretched(verts, tris, factor=8):
+    """Triangles whose texture area per surface area is factor times the level's median."""
+    p, uv = verts[:, 0:3], verts[:, UV:UV + 2]
+    area = np.linalg.norm(np.cross(p[tris[:, 1]] - p[tris[:, 0]], p[tris[:, 2]] - p[tris[:, 0]]), axis=1)
+    e1, e2 = uv[tris[:, 1]] - uv[tris[:, 0]], uv[tris[:, 2]] - uv[tris[:, 0]]
+    uv_area = np.abs(e1[:, 0] * e2[:, 1] - e1[:, 1] * e2[:, 0])
+    density = uv_area / np.maximum(area, 1e-12)
+    return int((density > np.median(density[area > 0]) * factor).sum())
+
+
+def density(p, uv, tri):
+    area = np.linalg.norm(np.cross(p[tri[1]] - p[tri[0]], p[tri[2]] - p[tri[0]]))
+    e1, e2 = uv[1] - uv[0], uv[2] - uv[0]
+    return abs(e1[0] * e2[1] - e1[1] * e2[0]) / max(area, 1e-12)
+
+
+def affine_uv(points, ref, tri):
+    """uv of each point under the texture mapping of one reference triangle, extended past its edges
+    (points are projected onto the triangle's plane)."""
+    a, b, c = ref[tri, 0:3]
+    ab, ac = b - a, c - a
+    d00, d01, d11 = ab @ ab, ab @ ac, ac @ ac
+    den = d00 * d11 - d01 * d01 or 1e-20
+    uv = ref[tri, UV:UV + 2]
+    out = []
+    for p in points:
+        ap = p - a
+        d20, d21 = ap @ ab, ap @ ac
+        v, w = (d11 * d20 - d01 * d21) / den, (d00 * d21 - d01 * d20) / den
+        out.append(uv[0] * (1 - v - w) + uv[1] * v + uv[2] * w)
+    return np.array(out)
+
+
+def remap_level(verts, tris, ref, ref_tris):
+    """(new vertices, new triangles, source vertex of each new vertex): each triangle mapped onto one
+    piece of the reference texture.
+    The corners take the closest points on the island under the triangle's centre; where an island
+    wraps round (a seam inside it) and that would still stretch the triangle, all three corners use
+    the mapping of the reference triangle closest to the centre instead."""
+    ref_island = islands(ref_tris, len(ref))
+    by_island = {i: ref_tris[ref_island == i] for i in np.unique(ref_island)}
+    rp = ref[:, 0:3]
+    limit = 4 * np.median([density(rp, ref[t, UV:UV + 2], t) for t in ref_tris])
+    p, nrm = verts[:, 0:3], verts[:, 3:6]
+    new_verts, new_tris, copies, sources = [], [], {}, []
+    for n, tri in enumerate(tris):
+        centre = p[tri].mean(0)
+        normal = np.cross(p[tri[1]] - p[tri[0]], p[tri[2]] - p[tri[0]])
+        if not normal.any():
+            normal = nrm[tri].sum(0)
+        best, island = None, None
+        for i, members in by_island.items():
+            _, dist = closest_uv(centre, normal, ref, members)
+            if best is None or dist < best:
+                best, island = dist, i
+        uvs = np.array([closest_uv(p[k], nrm[k], ref, by_island[island])[0] for k in tri])
+        tag = int(island)
+        if density(p, uvs, tri) > limit:                 # crosses a seam inside the island
+            members = by_island[island]
+            near = min(range(len(members)), key=lambda j: ((rp[members[j]].mean(0) - centre) ** 2).sum())
+            uvs = affine_uv(p[tri], ref, members[near])
+            tag = ('tri', n)
+        out = []
+        for k, uv in zip(tri, uvs):
+            key = (int(k), tag)
+            if key not in copies:
+                row = verts[k].copy()
+                row[UV:UV + 2] = uv
+                copies[key] = len(new_verts)
+                new_verts.append(row)
+                sources.append(int(k))
+            out.append(copies[key])
+        new_tris.append(out)
+    return np.array(new_verts), np.array(new_tris, dtype=np.uint16), sources
 
 
 def fix_model(mdl):
-    """Model bytes with texture coordinates on any far level that has none; None if nothing to do."""
+    """Model bytes with far levels given texture coordinates (none yet, or stretched ones); None if
+    nothing to do."""
     lv = levels(mdl)
     if len(lv) < 2 or np.abs(lv[0][1][:, UV:UV + 2]).max() == 0:
         return None
-    out = bytearray(mdl)
-    changed = False
-    for start, verts, _ in lv[1:]:
-        if np.abs(verts[:, UV:UV + 2]).max() != 0:
+    ref, ref_tris = lv[0][1], lv[0][2]
+    out, changed = bytearray(mdl), False
+    for start, verts, tris in reversed(lv[1:]):           # last first: earlier offsets stay valid
+        if np.abs(verts[:, UV:UV + 2]).max() != 0 and stretched(verts, tris) == 0:
             continue
-        ref, tris = lv[0][1], lv[0][2]
-        for k, vert in enumerate(verts):
-            uv = closest_uv(vert[0:3], vert[3:6], ref, tris)
-            struct.pack_into('<2e', out, start + k * STRIDE + UV * 2, *uv)
+        new_verts, new_tris, sources = remap_level(verts, tris, ref, ref_tris)
+        assert len(new_verts) < 65536
+        raw = bytearray(mdl[start:start + len(verts) * STRIDE])
+        rows = []
+        for row, src in zip(new_verts, sources):          # keep every field but the uv bit-exact
+            data = bytearray(raw[src * STRIDE:(src + 1) * STRIDE])
+            struct.pack_into('<2e', data, UV * 2, *row[UV:UV + 2])
+            rows.append(bytes(data))
+        level = (struct.pack('<HI', len(new_verts), len(new_verts) * STRIDE) + b''.join(rows) +
+                 struct.pack('<I', len(new_tris)) + new_tris.astype('<u2').tobytes())
+        old_end = start + len(verts) * STRIDE + 4 + len(tris) * 6
+        out[start - 6:old_end] = level
         changed = True
     if not changed:
         return None
     check = levels(bytes(out))
-    assert all(np.abs(v[:, UV:UV + 2]).max() > 0 for _, v, _ in check)
+    assert len(check) == len(lv)
+    assert all(np.abs(v[:, UV:UV + 2]).max() > 0 and stretched(v, t) == 0 for _, v, t in check[1:])
     return bytes(out)
 
 

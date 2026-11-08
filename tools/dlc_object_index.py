@@ -6,7 +6,10 @@ base table for every world, and the client shim switches DLC worlds to these (pa
 Buccaneer Bay and other Paine Island tracks without them). The packs ship the Xbox base table, whose
 cells paint the Xbox object layout; used whole, it repainted base objects in DLC worlds (the
 Scorpion's rear fender turned red). So the staged table is the PC base table, with the pack's cells
-only where DLC materials use base-area pages (the Origin of Pain seabed, columns 48-160). Once a
+only where DLC materials use base-area pages (the Origin of Pain seabed, columns 48-160), except
+cells that also hold PC bike or rider textures: there the pack's Xbox decals dirtied the bike engines
+and greyed the Micro Donkey in DLC worlds (GitHub issue #2), so those 12 cells keep the PC decals.
+(A decal's position is not a plain atlas position, so cells are kept or replaced whole.) Once a
 pack is loaded, vtex/decalsObjects.dat resolves to its copy in base worlds too, so the PC table is
 also staged as decalsObjects_dlc0.dat for them.
 
@@ -80,6 +83,35 @@ def base_area_cells(game):
             x0, y0 = int(x * 2048) // DECAL_CELL, int(y * 2048) // DECAL_CELL
             x1, y1 = int((x + w) * 2048 - 1) // DECAL_CELL, int((y + h) * 2048 - 1) // DECAL_CELL
             cells.update((cx, cy) for cy in range(y0, y1 + 1) for cx in range(x0, x1 + 1))
+    return cells
+
+
+def bike_cells(game):
+    """Decal cells (x, y) holding a PC bike or rider material (Objects/Bikes, Objects/Characters)."""
+    from dlc_unpack import names_of
+    from dlc_pc_gear import collection, uv_nodes, rect, load
+    from dlc_fire_materials import walk
+    data, entries = read_pak(str(game / 'build/data/data.pak'))
+    cells = set()
+    for name, entry in names_of(data, entries):
+        if not name.startswith('objectcollection'):
+            continue
+        tree, _ = collection(file_data(data, entry, decode_xmem=True))
+        root = load(tree)
+        _, nodes = uv_nodes(root)
+        for node, path in walk(root):
+            if 'Materials' not in path or not ('Bikes' in path or 'Characters' in path):
+                continue
+            props = {key: value for key, _kind, value in node['props']}
+            if 0x255b12 not in props:
+                continue
+            material = struct.unpack('<I', props[0x255b12])[0]
+            if material not in nodes:
+                continue
+            x, y, w, h = (v * 2048 for v in rect(nodes[material]))
+            if w > 0 and h > 0:
+                cells.update((cx, cy) for cy in range(int(y) // DECAL_CELL, int(y + h - 1) // DECAL_CELL + 1)
+                             for cx in range(int(x) // DECAL_CELL, int(x + w - 1) // DECAL_CELL + 1))
     return cells
 
 
@@ -159,7 +191,7 @@ def main():
     used = {r[3] for r in base}
     report = {'base_sha256': hashlib.sha256(base_data).hexdigest(), 'packs': []}
     next_code = 0x84
-    dlc_cells = base_area_cells(args.game)
+    dlc_cells = base_area_cells(args.game) - bike_cells(args.game)
     base_rects = base_material_rects(args.game)
     # Base worlds: the PC table under a name no pack shadows (both ship vtex/decalsObjects.dat).
     pc_decals = (args.game / 'build/data/vtex/decalsObjects.dat').read_bytes()

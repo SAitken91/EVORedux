@@ -14,6 +14,12 @@ pack has converted completely. Nothing is downloaded or uploaded.
 
 Usage: python dlc_import.py [--game <TrialsPC folder>] [<package file or folder> ...]
            [--work <folder>] [--no-install] [--keep-work]
+       python dlc_import.py --fixes-only [--game <TrialsPC folder>]
+--fixes-only (UPDATE_DLC.bat) re-runs only the steps that patch the installed DLC and game files
+(apply_fixes), on DLC imported earlier: no package files, no conversion. Every one of those steps
+skips work already done or rebuilds from its own untouched backup, so running it again is safe;
+a full import runs the same steps after installing. Fixes to the conversion itself (textures,
+sound, track files) still need the full import.
 With no --game, the Steam and Ubisoft Connect installs are searched. With no files, the "DLC"
 folder next to this tool's folder is searched for package files.
 """
@@ -171,7 +177,7 @@ def find_packages(paths):
 NEEDED_SPACE = 7 * 1024 ** 3      # extracted (~2 GB) + converted (~3 GB) packs, with headroom
 
 
-def pick_work_folder(requested, game):
+def pick_work_folder(requested, game, needed=None):
     """A writable work folder with enough free space: next to the game if possible (the install
     is then a quick move on the same drive), else in the user's local app data."""
     choices = [requested] if requested else [
@@ -190,8 +196,9 @@ def pick_work_folder(requested, game):
             problems.append(f"{choice}: not writable ({e.strerror})")
             continue
         free = shutil.disk_usage(choice).free
-        if free < NEEDED_SPACE:
-            problems.append(f"{choice}: only {free / 1024 ** 3:.1f} GB free, about 7 GB needed")
+        needed = NEEDED_SPACE if needed is None else needed
+        if free < needed:
+            problems.append(f"{choice}: only {free / 1024 ** 3:.1f} GB free, about {needed / 1024 ** 3:.0f} GB needed")
             continue
         return choice
     raise SystemExit("No work folder available:\n  " + "\n  ".join(problems)
@@ -359,6 +366,41 @@ def paint_dlc_ground(game):
             step(f"{pack}: {e}")
 
 
+def apply_fixes(game, work):
+    """Every step that patches the installed DLC and game files, in order (full import and
+    --fixes-only). Each is safe to run again."""
+    step("moving Origin of Pain's textures clear of the base game's")
+    import dlc_vt_relocate
+    dlc_vt_relocate.relocate_installed(game)
+    step("building the DLC texture index")
+    sys.argv = ["dlc_object_index.py", game, os.path.join(game, "build", "data", "vtex")]
+    import dlc_object_index
+    dlc_object_index.main()
+    step("keeping Gold Edition bonus gear separate from the Xbox texture atlas")
+    from pathlib import Path
+    import dlc_pc_gear
+    gear_stage = Path(work) / "pc_gear"
+    dlc_pc_gear.stage(Path(game), gear_stage)
+    if game_running():
+        raise SystemExit("Trials Evolution is running. Close it before finishing the texture repair.")
+    dlc_pc_gear.install(Path(game), gear_stage)
+    restore_cut_items(game)
+    step("adding the Xbox rider gear to the garage")
+    import dlc_rider_gear
+    dlc_rider_gear.main(game)
+    step("letting the editor allow the DLC bikes (Gecko 520, Banshee) on your tracks")
+    import dlc_editor_bikes
+    dlc_editor_bikes.main(game)
+    paint_dlc_ground(game)
+    if have_numpy():
+        step("giving the Desert Gear helmet's distance model its texture coordinates")
+        import dlc_lod_uvs
+        dlc_lod_uvs.install(game)
+        step("colour-coding the DLC items in the garage (red Origin of Pain, green Riders of Doom)")
+        import dlc_icon_tiles
+        dlc_icon_tiles.install(game)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--game", help="Trials Evolution Gold folder (the one holding datapack and build)")
@@ -366,6 +408,8 @@ def main():
     ap.add_argument("--work", help="work folder (needs ~6 GB free; default: next to the game)")
     ap.add_argument("--no-install", action="store_true", help="convert only, leave the game untouched")
     ap.add_argument("--keep-work", action="store_true", help="don't delete the work folder afterwards")
+    ap.add_argument("--fixes-only", action="store_true",
+                    help="apply the latest fixes to DLC imported earlier (no package files needed)")
     args = ap.parse_args()
 
     game = args.game or find_game()
@@ -381,6 +425,20 @@ def main():
             "the Steam and Ubisoft Connect versions). Importing would not make the DLC playable. "
             "Please post dlc_import_log.txt so support for this version can be added.")
     step(f"game build: {SUPPORTED_BUILDS[build]}")
+    if args.fixes_only:
+        installed = [p for p in ("OriginofPain", "RidersofDoom")
+                     if os.path.exists(os.path.join(game, "datapack", "DLCContent", p, "data", "data.pak"))]
+        if not installed:
+            raise SystemExit("No imported DLC found in this game. Run IMPORT_DLC.bat with your DLC files first.")
+        step("updating the DLC you imported earlier: " + ", ".join(installed))
+        if game_running():
+            raise SystemExit("Trials Evolution is running. Close it and run this again.")
+        work = pick_work_folder(args.work, game, needed=2 * 1024 ** 3)   # pak rewrites only
+        apply_fixes(game, work)
+        if not args.keep_work:
+            shutil.rmtree(os.path.join(work, "pc_gear"), ignore_errors=True)
+        step("all done - the latest DLC fixes are installed")
+        return
     packages = find_packages(args.packages or [os.path.join(os.path.dirname(TOOLS), "DLC")])
     if not packages:
         raise SystemExit("No DLC package files found. Put your dumped DLC files in the DLC folder "
@@ -419,33 +477,7 @@ def main():
         raise SystemExit("Trials Evolution is running. Close it and run this again.")
     for folder, path in staged.items():
         install(folder, path, game)
-    step("moving Origin of Pain's textures clear of the base game's")
-    import dlc_vt_relocate
-    dlc_vt_relocate.relocate_installed(game)
-    step("building the DLC texture index")
-    sys.argv = ["dlc_object_index.py", game, os.path.join(game, "build", "data", "vtex")]
-    import dlc_object_index
-    dlc_object_index.main()
-    step("keeping Gold Edition bonus gear separate from the Xbox texture atlas")
-    from pathlib import Path
-    import dlc_pc_gear
-    gear_stage = Path(work) / "pc_gear"
-    dlc_pc_gear.stage(Path(game), gear_stage)
-    if game_running():
-        raise SystemExit("Trials Evolution is running. Close it before finishing the texture repair.")
-    dlc_pc_gear.install(Path(game), gear_stage)
-    restore_cut_items(game)
-    step("adding the Xbox rider gear to the garage")
-    import dlc_rider_gear
-    dlc_rider_gear.main(game)
-    paint_dlc_ground(game)
-    if have_numpy():
-        step("giving the Desert Gear helmet's distance model its texture coordinates")
-        import dlc_lod_uvs
-        dlc_lod_uvs.install(game)
-        step("colour-coding the DLC items in the garage (red Origin of Pain, green Riders of Doom)")
-        import dlc_icon_tiles
-        dlc_icon_tiles.install(game)
+    apply_fixes(game, work)
     if not args.keep_work:
         shutil.rmtree(work, ignore_errors=True)
     step("all done - start the game and look for the DLC events on the world map")

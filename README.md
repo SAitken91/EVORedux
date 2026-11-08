@@ -168,6 +168,10 @@ terrain, tracks, sound, leaderboard ids) and installs it to `datapack\DLCContent
 events are open on the world map straight away. An earlier DLC install is kept in
 `TrialsPC\dlc_backup`.
 
+**After an EVO Redux update:** double-click **`UPDATE_DLC.bat`** to apply the latest DLC fixes
+to the DLC you already imported. It needs no DLC files, converts nothing again and takes a
+minute or two (Python required, as above).
+
 **If the import doesn't work:**
 
 - It needs about **7 GB of free space** while it works: next to the game if that folder is
@@ -214,7 +218,8 @@ want it.
 | Tool | What it does |
 |---|---|
 | `INSTALL.bat` (release zip) | Installs or updates EVO Redux. Finds Steam and Ubisoft Connect installs. |
-| `IMPORT_DLC.bat` (release zip) | One-click import of the Xbox 360 DLC packs you own (see [Xbox 360 DLC](#xbox-360-dlc)). Run it again after an update to pick up DLC fixes. |
+| `IMPORT_DLC.bat` (release zip) | One-click import of the Xbox 360 DLC packs you own (see [Xbox 360 DLC](#xbox-360-dlc)). |
+| `UPDATE_DLC.bat` (release zip) | Applies the latest DLC fixes to DLC you already imported, without importing again. Run it after updating EVO Redux. |
 | `tools/switch_server.bat` | Switches the game between the live server and a local test server. |
 | `tools/x360_tracks.py` | Converts a folder of Xbox 360 custom track packages to PC tracks (Python 3): `python tools/x360_tracks.py <360 tracks> <output>`. Most people don't need it: the same tracks are on Track Central. |
 | `tools/x360_metadata.py`, `tools/x360_thumbnails.py` | Fix 360 tracks converted before v1.5.2 (wrong track ids, missing thumbnails): `python tools/x360_metadata.py <SavedGames>` and `python tools/x360_thumbnails.py <SavedGames>` (Windows). |
