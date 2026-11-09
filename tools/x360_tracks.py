@@ -57,6 +57,9 @@ def convert(package, out_root, creator, name):
     row = {'creator': creator, 'track': name, 'package': os.path.basename(package)}
     try:
         pkg = STFS(package)
+        if pkg.display_name.strip():
+            name = pkg.display_name.strip()
+            row['track'] = name
     except Exception as e:                       # noqa: BLE001
         return {**row, 'status': f'not a package ({e})'}
     # Some re-saved packages fail the block hash check only on trailing / rewritten blocks; the
