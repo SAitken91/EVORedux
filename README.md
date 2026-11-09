@@ -188,6 +188,24 @@ The importer is [`tools/dlc_import.py`](tools/dlc_import.py); it runs the indivi
 
 ---
 
+## Known issues
+
+Still being worked on. Found something else? [Open an issue](https://github.com/SAitken91/EVORedux/issues).
+
+- **Track Central: scrolling very fast through a long track list can crash the game** (rare). Every
+  track you pass downloads its details; with dozens of those in flight at once, a timing bug in the
+  original game's online code can hit. Scrolling a little slower avoids it.
+- **The world map can freeze** when switching to a DLC world after playing a track (rare).
+  Workaround: play DLC tracks first, then move to the base worlds. If it happens, wait about 30
+  seconds before closing the game and attach `trials_revive_shim.log` (in the game's `datapack` folder) to your report.
+- **Bikes look a little dirtier in DLC worlds.** This looks like the game tinting bike dirt with
+  each world's own sand, so it may be by design.
+- **The Gecko 520 has no pedals** in the garage (the crank arms show).
+- **Atom Smasher X** loads, but some of its scripted logic may misbehave.
+- **Hybrid Theory** can briefly turn the screen purple.
+
+---
+
 ## Your Ubisoft password stays on your PC
 
 The game sends whatever password Ubisoft Connect hands it to the online server, and its built-in
