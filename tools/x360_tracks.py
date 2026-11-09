@@ -125,6 +125,8 @@ def main():
     x360_metadata.convert_folders([args.output])
     done, failed = convert_folders([args.output])
     print(f'thumbnails: {done} converted to PC format, {failed} failed')
+    if failed:
+        print('  (tracks whose thumbnail failed show the generic picture; they still play fine)')
     fields = ['status', 'creator', 'track', 'package', 'magic', 'dlc_objects', 'dlc_bike', 'cache_emptied', 'hash_warning', 'chunks']
     with open(os.path.join(args.output, 'conversion_report.csv'), 'w', newline='', encoding='utf-8') as f:
         w = csv.DictWriter(f, fieldnames=fields, extrasaction='ignore')

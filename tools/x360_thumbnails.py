@@ -106,9 +106,15 @@ def convert_folders(roots, log=print, originals=None):
     with tempfile.TemporaryDirectory() as tmp:
         for name, items in jobs.items():
             open(os.path.join(tmp, name + ".jxr"), "wb").write(items[0][1])
-        result = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command",
-                                 CONVERT.format(dir=tmp.replace("'", "''"))],
-                                capture_output=True, text=True)
+        try:
+            result = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                                     CONVERT.format(dir=tmp.replace("'", "''"))],
+                                    capture_output=True, text=True)
+        except OSError:
+            log("thumbnails: Windows PowerShell wasn't found, so the 360 pictures (JPEG XR) were left "
+                "as they are and the game shows its generic picture. Run this on Windows to convert them:\n"
+                "  python tools/x360_thumbnails.py <output folder>")
+            return 0, sum(len(items) for items in jobs.values())
         log(result.stdout.strip() or result.stderr.strip())
         done = failed = 0
         for name, items in jobs.items():
