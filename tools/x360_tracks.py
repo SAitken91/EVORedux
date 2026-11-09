@@ -8,7 +8,7 @@ Conversion, per track:
   - track.trk magic 0xCAFEB00B -> 0xDEADBABE where needed (same layout otherwise)
   - empty both leaderboard caches (keep the 9-byte header, zero counts): the 360's cached
     scores/ghosts made the PC game hang before loading the track
-  - add displayname (the track name, from the archive's <creator>\\<track>\\ folder)
+  - add displayname (prefer the Xbox 360 package title; fall back to the archive's <creator>\\<track>\\ folder)
   - thumbnail.thn: JPEG XR -> the PC's JPEG (x360_thumbnails.py; Windows only)
   - metadata.mda: 360 byte order -> the PC's (x360_metadata.py)
 A report (CSV) lists every track with its DLC needs (DLC0 chunk) and any problem.
