@@ -16,9 +16,11 @@ UGCContent properties (ids as the client reads them in RDVDownloadContentTask):
 """
 import lzma
 import os
+import random
 import sqlite3
 import struct
 import threading
+import time
 import uuid
 
 PROP_DATE, PROP_NAME, PROP_FILE, PROP_FLAGS = 4, 8, 9, 10
@@ -30,6 +32,8 @@ TYPE_TRACK_BLOB, TYPE_SHOT_BLOB = 0x80000003, 0x80000004
 GAME_TYPE_BITS = (0x400, 0x200, 0x800, 0x1000, 0x2000)          # 0 Trials, 2 Supercross, 3 Skill game
 DIFFICULTY_BITS = (0x4000, 0x8000, 0x10000, 0x20000, 0x40000)  # 0 beginner .. 4 extreme
 GAME_TYPE_MASK = sum(GAME_TYPE_BITS)
+DIFFICULTY_MASK = sum(DIFFICULTY_BITS)
+SHUFFLE_SECONDS = 300                # a browse search keeps the same random order this long
 
 # A library track's creator pid is the low 32 bits of the creator's Xbox 360 XUID: the game reads
 # that pid from the track header of an installed 360 track and looks its name up
@@ -221,9 +225,12 @@ class TrackLibrary:
     def query(self, query_id, props, offset, count):
         """UGCQuery -> matching rows, ordered for the feed or search that asked."""
         rows = self.rows
+        text = ""
         for pid, _, value in props:
             if pid == PROP_FLAGS and value & GAME_TYPE_MASK:
                 rows = [r for r in rows if r[5] & value & GAME_TYPE_MASK]
+            if pid == PROP_FLAGS and value & DIFFICULTY_MASK:
+                rows = [r for r in rows if r[5] & value & DIFFICULTY_MASK]
             elif pid == PROP_NAME and value:
                 # Search text matches the track name, the creator's gamertag or the DLC label
                 # ("oop", "rod", "oop+rod", or "dlc" for every track that needs DLC).
@@ -241,6 +248,12 @@ class TrackLibrary:
             rows = sorted(rows, key=lambda r: -r[11])
         elif query_id == QUERY_NEW_BY_TYPE:
             rows = sorted(rows, key=lambda r: -r[10])
+        elif query_id in QUERY_SEARCH and not text:
+            # The game only ever asks for the first page (offset 0, 50 rows), so an alphabetical
+            # browse showed everyone the same 50 tracks. A search without a name gets a random
+            # order instead, kept for SHUFFLE_SECONDS so the list holds still while browsing it.
+            rows = sorted(rows, key=lambda r: r[0])
+            random.Random(int(time.time()) // SHUFFLE_SECONDS).shuffle(rows)
         else:
             rows = sorted(rows, key=lambda r: r[3].lower())
         return rows[offset:offset + count] if count else rows[offset:], len(rows)
