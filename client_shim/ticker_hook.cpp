@@ -18,6 +18,7 @@
 #include "game_build.h"
 #pragma comment(lib, "user32.lib")   // EnumWindows: find the game window's thread
 #include <winhttp.h>
+#include <tlhelp32.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -191,9 +192,10 @@ BOOL CALLBACK find_game_window(HWND hwnd, LPARAM out) {
 }
 
 // Frame watch: when the main loop stops for 20 s (a player's "frozen on the world map" report,
-// GitHub issue #2), log where the main thread is: its instruction pointer and the game-code return
-// addresses on its stack, no memory contents. The thread is resumed before anything is logged
-// (it may hold the heap lock). Repeats at most twice per stall; a line notes when frames resume.
+// GitHub issue #2), log where the main thread is, how much of the 32-bit address space is left, and
+// where every other game thread is (the main thread was found waiting on a loader): instruction
+// pointers and game-code return addresses only, no memory contents. Threads run again before
+// anything is formatted or logged. Repeats at most twice per stall; a line notes when frames resume.
 volatile DWORD g_main_frame_tick;
 
 bool frame_watch_return(DWORD v) {
@@ -210,6 +212,77 @@ bool frame_watch_return(DWORD v) {
     } __except (EXCEPTION_EXECUTE_HANDLER) {
     }
     return false;
+}
+
+// One thread's position: "eip=... stack: <game return addresses>". The thread is suspended only
+// while its registers and stack are read; the text is written after it runs again (a suspended
+// thread may hold a CRT or heap lock that formatting would need).
+int frame_watch_position(DWORD tid, char* out, int size, int max_frames) {
+    HANDLE t = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT, FALSE, tid);
+    if (!t) return 0;
+    DWORD eip = 0, frames[24];
+    int found = 0;
+    bool got = false;
+    if (max_frames > 24) max_frames = 24;
+    if (SuspendThread(t) != (DWORD)-1) {
+        CONTEXT c = {};
+        c.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
+        if (GetThreadContext(t, &c)) {
+            got = true;
+            eip = c.Eip;
+            __try {
+                const DWORD* sp = (const DWORD*)c.Esp;
+                for (int i = 0; i < 4096 && found < max_frames; i++)
+                    if (frame_watch_return(sp[i])) frames[found++] = sp[i];
+            } __except (EXCEPTION_EXECUTE_HANDLER) {
+            }
+        }
+        ResumeThread(t);
+    }
+    CloseHandle(t);
+    if (!got) return 0;
+    int n = sprintf_s(out, size, " eip=%08lx stack:", eip);
+    for (int i = 0; i < found && n > 0 && n < size - 10; i++) n += sprintf_s(out + n, size - n, " %08lx", frames[i]);
+    return found;
+}
+
+// The 32-bit game's address space: memory in use and the largest free block left.
+void frame_watch_memory(char* out, int size) {
+    SIZE_T free_total = 0, largest = 0;
+    MEMORY_BASIC_INFORMATION m;
+    for (uintptr_t a = 0x10000; VirtualQuery((void*)a, &m, sizeof m) == sizeof m;) {
+        if (m.State == MEM_FREE) {
+            free_total += m.RegionSize;
+            if (m.RegionSize > largest) largest = m.RegionSize;
+        }
+        uintptr_t next = (uintptr_t)m.BaseAddress + m.RegionSize;
+        if (next <= a) break;
+        a = next;
+    }
+    MEMORYSTATUSEX ms = {sizeof ms};
+    GlobalMemoryStatusEx(&ms);
+    sprintf_s(out, size, "frame watch: address space %lu MB, %lu MB free (largest free block %lu MB); PC RAM %lu MB free of %lu MB",
+              (DWORD)(ms.ullTotalVirtual >> 20), (DWORD)(free_total >> 20), (DWORD)(largest >> 20),
+              (DWORD)(ms.ullAvailPhys >> 20), (DWORD)(ms.ullTotalPhys >> 20));
+}
+
+// Every other game thread that is inside game code, one line each (loader threads included).
+void frame_watch_threads(DWORD main_tid) {
+    static char lines[96][300];
+    int count = 0;
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+    if (snap == INVALID_HANDLE_VALUE) return;
+    THREADENTRY32 te = {sizeof te};
+    for (BOOL ok = Thread32First(snap, &te); ok && count < 96; ok = Thread32Next(snap, &te)) {
+        if (te.th32OwnerProcessID != GetCurrentProcessId() || te.th32ThreadID == GetCurrentThreadId() ||
+            te.th32ThreadID == main_tid)
+            continue;
+        int n = sprintf_s(lines[count], "frame watch: thread %lu", te.th32ThreadID);
+        if (frame_watch_position(te.th32ThreadID, lines[count] + n, (int)sizeof lines[count] - n, 12))
+            count++;
+    }
+    CloseHandle(snap);
+    for (int i = 0; i < count; i++) shim_log(lines[i]);
 }
 
 DWORD WINAPI frame_watch(LPVOID param) {
@@ -232,30 +305,14 @@ DWORD WINAPI frame_watch(LPVOID param) {
         }
         if (!stalled_since) stalled_since = last + 20000;
         if (reports >= 2 || (reports && now - stalled_since < 40000)) continue;
-        HANDLE t = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT, FALSE, tid);
-        if (!t) return 0;
         char line[512];
         int n = sprintf_s(line, "frame watch: no frame for %lu s; main thread %lu (game at %p)", (now - last) / 1000, tid,
-                        (void*)GetModuleHandleA(nullptr));
-        if (SuspendThread(t) != (DWORD)-1) {
-            CONTEXT c = {};
-            c.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
-            if (GetThreadContext(t, &c)) {
-                n += sprintf_s(line + n, sizeof line - n, " eip=%08lx stack:", c.Eip);
-                __try {
-                    const DWORD* sp = (const DWORD*)c.Esp;
-                    for (int i = 0, found = 0; i < 4096 && found < 24; i++)
-                        if (frame_watch_return(sp[i])) {
-                            n += sprintf_s(line + n, sizeof line - n, " %08lx", sp[i]);
-                            found++;
-                        }
-                } __except (EXCEPTION_EXECUTE_HANDLER) {
-                }
-            }
-            ResumeThread(t);
-        }
-        CloseHandle(t);
+                          (void*)GetModuleHandleA(nullptr));
+        frame_watch_position(tid, line + n, (int)sizeof line - n, 24);
         shim_log(line);
+        frame_watch_memory(line, sizeof line);
+        shim_log(line);
+        frame_watch_threads(tid);
         reports++;
     }
 }
