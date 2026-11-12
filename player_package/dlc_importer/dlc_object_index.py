@@ -86,6 +86,14 @@ def base_area_cells(game):
     return cells
 
 
+# Pack decal cells inside Origin of Pain's baked-mesh rectangle whose decals land on the PC's bike
+# part pages (the paintable frame, fork and engine pieces): taken from the pack, base bikes showed
+# grey-brown grime in both DLC worlds and clean again in the base worlds (GitHub issue #2). Found by
+# bisecting the 65 pack cells in game (2026-11-11); without them the bikes match the base worlds and
+# the circus cargo containers, which that rectangle is kept for, still look right.
+BIKE_PART_SPILL_CELLS = {(3, 52), (4, 52), (5, 52), (3, 53), (4, 53), (5, 53), (3, 54), (4, 54), (3, 55)}
+
+
 def bike_cells(game):
     """Decal cells (x, y) holding a PC bike or rider material (Objects/Bikes, Objects/Characters)."""
     from dlc_unpack import names_of
@@ -191,7 +199,7 @@ def main():
     used = {r[3] for r in base}
     report = {'base_sha256': hashlib.sha256(base_data).hexdigest(), 'packs': []}
     next_code = 0x84
-    dlc_cells = base_area_cells(args.game) - bike_cells(args.game)
+    dlc_cells = base_area_cells(args.game) - bike_cells(args.game) - BIKE_PART_SPILL_CELLS
     base_rects = base_material_rects(args.game)
     # Base worlds: the PC table under a name no pack shadows (both ship vtex/decalsObjects.dat).
     pc_decals = (args.game / 'build/data/vtex/decalsObjects.dat').read_bytes()
